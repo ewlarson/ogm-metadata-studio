@@ -1,0 +1,17 @@
+{
+  "id": "oscar-foo",
+  "dct_title_s": "Oscar Foo",
+  "dct_accessRights_s": "Public",
+  "gbl_resourceClass_sm": [
+    "Video Games",
+    "Datasets"
+  ],
+  "gbl_mdVersion_s": "Aardvark",
+  "dct_description_sm": [
+    "This is a longer description here."
+  ],
+  "dct_creator_sm": [],
+  "dct_publisher_sm": [],
+  "dct_subject_sm": [],
+  "dcat_keyword_sm": []
+}
