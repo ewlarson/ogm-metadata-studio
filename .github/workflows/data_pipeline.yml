@@ -30,12 +30,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: List files for debugging
+        run: ls -R
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: 'npm'
-          cache-dependency-path: './web/package-lock.json'
+          # cache: 'npm'
+          # cache-dependency-path: './web/package-lock.json'
 
       - name: Install Dependencies
         run: npm install
