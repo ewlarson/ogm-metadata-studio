@@ -3,14 +3,15 @@
   "dct_title_s": "Eric Test",
   "dct_accessRights_s": "Public",
   "gbl_resourceClass_sm": [
-    "Map",
     "Dataset",
+    "Map",
     "Website"
   ],
   "gbl_mdVersion_s": "Aardvark",
   "dct_description_sm": [
     "1. Description #1",
-    "2. Description #2"
+    "2. Description #2",
+    "3. Desperation"
   ],
   "dct_creator_sm": [
     "Eric Larson",
@@ -20,13 +21,33 @@
     "Taco Larson Publishing"
   ],
   "dct_subject_sm": [
-    "Human",
     "Dog",
+    "Human",
     "Sonic Youth"
   ],
   "dcat_keyword_sm": [
     "Maps of Eric"
   ],
   "schema_provider_s": "Eric Larson",
-  "dct_issued_s": "2025"
+  "dct_issued_s": "2025",
+  "dct_alternative_sm": [],
+  "dct_language_sm": [],
+  "gbl_displayNote_sm": [],
+  "gbl_resourceType_sm": [],
+  "dcat_theme_sm": [],
+  "dct_temporal_sm": [],
+  "gbl_indexYear_im": [],
+  "gbl_dateRange_drsim": [],
+  "dct_spatial_sm": [],
+  "dct_relation_sm": [],
+  "pcdm_memberOf_sm": [],
+  "dct_isPartOf_sm": [],
+  "dct_source_sm": [],
+  "dct_isVersionOf_sm": [],
+  "dct_replaces_sm": [],
+  "dct_isReplacedBy_sm": [],
+  "dct_rights_sm": [],
+  "dct_rightsHolder_sm": [],
+  "dct_license_sm": [],
+  "dct_identifier_sm": []
 }
