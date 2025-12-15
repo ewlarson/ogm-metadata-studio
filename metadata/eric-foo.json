@@ -1,0 +1,29 @@
+{
+  "id": "eric-foo",
+  "dct_title_s": "Eric Test",
+  "gbl_resourceClass_sm": [
+    "Map"
+  ],
+  "dct_accessRights_s": "Public",
+  "gbl_mdVersion_s": "Aardvark",
+  "schema_provider_s": "Eric Larson",
+  "dct_issued_s": "2025",
+  "dct_description_sm": [
+    "This is the description"
+  ],
+  "dct_creator_sm": [
+    "Eric Larson",
+    "Taco Larson"
+  ],
+  "dct_publisher_sm": [
+    "Taco Larson Publishing"
+  ],
+  "dct_subject_sm": [
+    "Human",
+    "Dog",
+    "Sonic Youth"
+  ],
+  "dcat_keyword_sm": [
+    "Maps of Eric"
+  ]
+}
