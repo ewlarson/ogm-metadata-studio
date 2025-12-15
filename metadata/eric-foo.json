@@ -4,11 +4,13 @@
   "dct_accessRights_s": "Public",
   "gbl_resourceClass_sm": [
     "Map",
-    "Dataset"
+    "Dataset",
+    "Website"
   ],
   "gbl_mdVersion_s": "Aardvark",
   "dct_description_sm": [
-    "This is the description"
+    "1. Description #1",
+    "2. Description #2"
   ],
   "dct_creator_sm": [
     "Eric Larson",
