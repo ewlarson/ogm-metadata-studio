@@ -1,0 +1,57 @@
+# System Files
+.DS_Store
+Thumbs.db
+
+# Node.js / Web
+node_modules/
+dist/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+
+# Vite
+*.tsbuildinfo
+
+# Python (Legacy/Cleanup)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+*.egg-info/
+.coverage
+.tox/
+.pytest_cache/
+
+# DuckDB / Local Data
+*.duckdb
+records.duckdb
+*.wal
+*.tmp
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Aardvark / Project Specific
+.aardvark-toolkit.yml
+# metadata/ is tracked, but we might want to ignore local-only files if any
+# resources.csv and distributions.csv seem to be tracked as part of the data model, 
+# but if they are generated artifacts, they should be ignored. 
+# Based on README, they are views of the metadata, so typically generated?
+# However, "Use resources.csv ... for spreadsheet-style editing" suggests they might be source? 
+# For now, let's keep them tracked if they are source, or ignore if purely output.
+# Given "sync flow stages metadata/, resources.csv...", they are tracked.
+
+# Environment Variables
+.env
+.env.*
+!.env.example
