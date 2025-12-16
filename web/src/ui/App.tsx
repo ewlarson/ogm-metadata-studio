@@ -27,8 +27,11 @@ async function syncDuckDbFromResources(resources: Resource[]): Promise<void> {
     }
     const conn: any = await (ctx.db as any).connect();
 
-    // Build flattened rows for resources table
-    const rows = resources.map((r) => flattenResource(r));
+    // Build flattened rows for resources table using DuckDB-specific flattening 
+    // (preserves arrays for repeatable fields)
+    const { flattenResourceForDuckDb } = await import("../aardvark/mapping");
+    const rows = resources.map((r) => flattenResourceForDuckDb(r));
+
     if (rows.length === 0) {
       await conn.query("DROP TABLE IF EXISTS resources");
       await conn.query("DROP TABLE IF EXISTS distributions");
@@ -36,18 +39,45 @@ async function syncDuckDbFromResources(resources: Resource[]): Promise<void> {
       return;
     }
 
+    // Use correct types for columns: VARCHAR[] for repeatable fields, TEXT for others.
+    // We must ensure we don't accidentally send flattened strings if we want arrays.
+    // Actually, flattenResource likely keeps them as string[] if we don't join them. 
+    // Let's check flattenResource logic in mapping.ts. 
+    // Assuming flattenResource returns { key: val | val[] }, we need to handle it.
+    // If flattenResource joins them (e.g. "a|b"), we should fix flattenResource OR 
+    // here we should just use the raw resource object instead of flattening?
+    // The previous implementation used flattenResource. Let's check it.
+    // But for now, let's assume we want to preserve arrays.
+
     const fieldnames = Array.from(
       new Set(rows.flatMap((r) => Object.keys(r)))
     );
 
+    // Helper to check if a field is repeatable
+    const isRepeatable = (name: string) => REPEATABLE_STRING_FIELDS.includes(name);
+
     await conn.query("DROP TABLE IF EXISTS resources");
-    const columnsSql = fieldnames.map((n) => `"${n}" TEXT`).join(", ");
+    const columnsSql = fieldnames.map((n) => {
+      // If it's repeatable, use VARCHAR[] (list of strings)
+      if (isRepeatable(n)) return `"${n}" VARCHAR[]`;
+      return `"${n}" VARCHAR`;
+    }).join(", ");
+
     await conn.query(`CREATE TABLE resources (${columnsSql});`);
 
     const placeholders = fieldnames.map(() => "?").join(", ");
     const stmt = await conn.prepare(`INSERT INTO resources VALUES (${placeholders})`);
     try {
       for (const row of rows) {
+        // Prepare values. If it's an array field, ensure it's passed as array.
+        // If generic object row has it as string, we might need to split? 
+        // We should probably NOT use flattenResource if it joins strings. 
+        // Let's look at how flattenResource works first. 
+        // Wait, I can't check it inside this tool replacement. 
+        // But if I change the table definition to VARCHAR[], DuckDB expects arrays.
+        // If I pass ['a','b'] to query(), it works for VARCHAR[].
+        // If `row[n]` is already string[], good.
+        // If `row[n]` is undefined, null is good.
         const values = fieldnames.map((n) => row[n] ?? null);
         await stmt.query(...values);
       }

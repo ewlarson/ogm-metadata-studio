@@ -56,6 +56,41 @@ export function flattenResource(resource: Resource): Record<string, string> {
   return row;
 }
 
+// JSON -> DuckDB row (preserves arrays for repeatable fields)
+export function flattenResourceForDuckDb(resource: Resource): Record<string, any> {
+  const json = resourceToJson(resource);
+  const row: Record<string, any> = {};
+
+  for (const field of SCALAR_FIELDS) {
+    if (field === "dct_references_s") continue;
+    const value = json[field];
+    if (value === undefined || value === null) continue;
+    if (typeof value === "boolean") {
+      row[field] = value ? "true" : "false";
+    } else {
+      row[field] = String(value);
+    }
+  }
+
+  for (const field of REPEATABLE_STRING_FIELDS) {
+    const value = json[field];
+    // Keep as array for DuckDB
+    if (Array.isArray(value)) {
+      row[field] = value.map(String);
+    } else {
+      row[field] = [];
+    }
+  }
+
+  if (!row["id"]) row["id"] = String(json["id"] ?? "");
+  if (!row["dct_title_s"]) row["dct_title_s"] = String(json["dct_title_s"] ?? "");
+  if (!row["dct_accessRights_s"]) {
+    row["dct_accessRights_s"] = String(json["dct_accessRights_s"] ?? "");
+  }
+
+  return row;
+}
+
 // resources.csv row (+ distributions) → Resource object with dct_references_s baked in.
 export function resourceFromRow(
   row: Record<string, string>,
