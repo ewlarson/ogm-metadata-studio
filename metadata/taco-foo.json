@@ -20,7 +20,11 @@
   "dct_creator_sm": [],
   "dct_publisher_sm": [],
   "gbl_resourceType_sm": [],
-  "dct_subject_sm": [],
+  "dct_subject_sm": [
+    "Puke",
+    "Human",
+    "Sonic Youth"
+  ],
   "dcat_theme_sm": [],
   "dcat_keyword_sm": [],
   "dct_temporal_sm": [],
@@ -28,7 +32,10 @@
   "dct_spatial_sm": [],
   "dct_identifier_sm": [],
   "dct_rights_sm": [],
-  "dct_rightsHolder_sm": [],
+  "dct_rightsHolder_sm": [
+    "Eric Larson",
+    "Megan Larson"
+  ],
   "dct_license_sm": [],
   "pcdm_memberOf_sm": [],
   "dct_isPartOf_sm": [],
