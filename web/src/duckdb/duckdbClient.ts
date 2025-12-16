@@ -156,67 +156,58 @@ export async function searchResources(
     const tables = tablesResult.toArray().map((row: any) => row.name);
     if (!tables.includes("resources")) return { resources: [], total: 0 };
 
-    // Sanitize sort column to prevent SQL injection
+    // Get table schema to verify columns exist
+    const schemaResult = await conn.query("DESCRIBE resources");
+    const columns = schemaResult.toArray().map((row: any) => row.column_name);
+
+    // Sanitize sort column
     const allowedSorts = ["id", "dct_title_s", "gbl_resourceClass_sm", "dct_accessRights_s", "gbl_mdVersion_s"];
-    const safeSort = allowedSorts.includes(sortBy) ? sortBy : "id";
+    let safeSort = allowedSorts.includes(sortBy) ? sortBy : "id";
+    if (!columns.includes(safeSort)) safeSort = "id"; // Fallback if column doesn't exist
     const safeOrder = sortOrder === "desc" ? "DESC" : "ASC";
 
     // Build WHERE clause
     let whereClause = "1=1";
-    const params: any[] = [];
+
+    // We construct the search condition dynamically based on available columns
     if (search) {
-      whereClause += ` AND (
-        id ILIKE ? OR 
-        dct_title_s ILIKE ? OR 
-        list_contains(gbl_resourceClass_sm, ?) OR
-        dct_description_sm::TEXT ILIKE ?
-      )`;
-      const s = `%${search}%`;
-      // For list_contains, we might need an exact match or handle it differently.
-      // But DuckDB's list_contains expects (list, element). 
-      // For loose search, checking if cast to text contains string is easier but hacky.
-      // Let's stick to text search for simplicity on lists for now.
-      params.push(s, s, search, s);
+      const safeSearch = search.replace(/'/g, "''");
+      const conditions: string[] = [];
+
+      if (columns.includes("id")) {
+        conditions.push(`COALESCE(id, '') ILIKE '%${safeSearch}%'`);
+      }
+      if (columns.includes("dct_title_s")) {
+        conditions.push(`COALESCE(dct_title_s, '') ILIKE '%${safeSearch}%'`);
+      }
+      if (columns.includes("gbl_resourceClass_sm")) {
+        // Handle list column safely
+        // Check if list contains the search term OR cast to text contains it
+        // list_contains might fail on null? DuckDB usually propagates null.
+        // COALESCE on list: COALESCE(gbl_resourceClass_sm, []) 
+        // But simpler: just cast to text and search.
+        // list_contains is stricter (exact match element). 
+        // User wants partial search likely.
+        // Array to string is safer for partial.
+        conditions.push(`array_to_string(gbl_resourceClass_sm, ' ') ILIKE '%${safeSearch}%'`);
+      }
+      if (columns.includes("dct_description_sm")) {
+        conditions.push(`array_to_string(dct_description_sm, ' ') ILIKE '%${safeSearch}%'`);
+      }
+
+      if (conditions.length > 0) {
+        whereClause += ` AND (${conditions.join(" OR ")})`;
+      }
     }
 
-    // Get Total Count
-    // Note: Parameterized queries in where clause need to be handled carefully.
-    // The current DuckDB WASM prepare implementation might have quirks.
-    // Let's rely on simple string interpolation for the count for now if prepare fails, 
-    // but try prepare first.
-
-    // Actually, let's construct the SQL safely.
-    // We already sanitized sort. Search string needs binding.
-
-    // count
-    // We need to inject the params into the query manually or use prepare if we can iterate results.
-    // But for a single scalar result (count), prepare + query returns a result we can read.
-
-    const countSql = `SELECT COUNT(*) as total FROM resources WHERE ${whereClause.replace(/\?/g, `'${search.replace(/'/g, "''")}'`).replace("list_contains(gbl_resourceClass_sm, ?)", `list_contains(gbl_resourceClass_sm, '${search.replace(/'/g, "''")}')`).replace(/%\?/g, `'%${search.replace(/'/g, "''")}%'`).replace(/\?%/g, `'%${search.replace(/'/g, "''")}%'`)}`;
-
-    // Simplification: We'll do client-side filtering logic if parameter binding is too complex for this specific "search all fields" logic 
-    // OR we just use string injection escaping carefully.
-    // Let's try to use the binding properly but the query complexity with '?' is high.
-    // Let's switch to a simpler approach: 
-    // Just construct the query string with basic escaping for the prototype.
-    const safeSearch = search.replace(/'/g, "''");
-    const searchSqlCondition = search ? `
-      AND (
-        id ILIKE '%${safeSearch}%' OR 
-        dct_title_s ILIKE '%${safeSearch}%' OR 
-        list_contains(gbl_resourceClass_sm, '${safeSearch}') OR
-        array_to_string(dct_description_sm, ' ') ILIKE '%${safeSearch}%'
-      )
-    ` : "";
-
-    const totalRes = await conn.query(`SELECT COUNT(*) as total FROM resources WHERE 1=1 ${searchSqlCondition}`);
+    const totalRes = await conn.query(`SELECT COUNT(*) as total FROM resources WHERE ${whereClause}`);
     const total = Number(totalRes.toArray()[0].total);
 
     // Get Page
     const offset = (page - 1) * pageSize;
     const dataSql = `
       SELECT * FROM resources 
-      WHERE 1=1 ${searchSqlCondition}
+      WHERE ${whereClause}
       ORDER BY "${safeSort}" ${safeOrder}
       LIMIT ${pageSize} OFFSET ${offset}
     `;
@@ -230,15 +221,6 @@ export async function searchResources(
       }
       return obj;
     });
-
-    // We need distributions for these resources? 
-    // For the list view, we might not need them, but the Resource model requires them?
-    // The Resource interface doesn't actually require distributions in the strict sense 
-    // (they are not in the Interface of Resource, they are passed to resourceFromRow separately).
-    // Wait, Resource interface DOES NOT have distributions. 
-    // resourceFromRow takes (row, dists). 
-    // Let's confirm if we need them.
-    // The list view likely doesn't show distributions. We can pass empty array.
 
     const resources: Resource[] = resourceRows.map((row: any) => resourceFromRow(row, []));
 
