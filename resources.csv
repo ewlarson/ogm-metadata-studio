@@ -1,5 +1,5 @@
 dcat_keyword_sm,dcat_theme_sm,dct_accessRights_s,dct_alternative_sm,dct_creator_sm,dct_description_sm,dct_identifier_sm,dct_isPartOf_sm,dct_isVersionOf_sm,dct_issued_s,dct_language_sm,dct_license_sm,dct_publisher_sm,dct_relation_sm,dct_replaces_sm,dct_rightsHolder_sm,dct_rights_sm,dct_source_sm,dct_spatial_sm,dct_subject_sm,dct_temporal_sm,dct_title_s,gbl_dateRange_drsim,gbl_displayNote_sm,gbl_mdVersion_s,gbl_resourceClass_sm,gbl_resourceType_sm,id,pcdm_memberOf_sm,schema_provider_s
 Maps of Eric,,Public,,Eric Larson|Taco Larson,1. Description #1|2. Description #2|3. Desperation,,,,2025,,,Taco Larson Publishing,,,,,,,Dog|Human|Sonic Youth,,Eric Test,,,Aardvark,Dataset|Map|Website,,eric-foo,,Eric Larson
-,,Public,,,Gusser!,,,,,,,,,,,,,,,,Gus,,,Aardvark,Web,,gus-foo,,
+,,Public,,,Gusser!,,,,,,,,,,,,,,,,Gus (He's my son),,,Aardvark,Web,,gus-foo,,
 ,,Public,,,,,,,,,,,,,,,,,,,Oscar Foo,,,Aardvark,Datasets|Oscarman|Pizza,,oscar-foo,,
 ,,Public,,,Extra description here|Taco Dogs description here.,,,,,,,,,,,,,,,,Taco Fool (He's a fool),,,Aardvark,Datasets|Dawg|Dog|Piano|Volcano,,taco-foo,,
