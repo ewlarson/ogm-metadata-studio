@@ -137,8 +137,6 @@ export const App: React.FC = () => {
     async function init() {
       // Only try loading parquet if we haven't successfully restored state 
       // or if we want to ensure fresh data.
-      // For now, let's try importing parquet on every full reload 
-      // if the table is empty or missing.
 
       const ctx = await getDuckDbContext();
       if (!ctx || !ctx.db) return;
@@ -149,16 +147,39 @@ export const App: React.FC = () => {
       if (resources.length === 0) {
         console.log("DuckDB empty, attempting to load resources.parquet...");
         try {
-          // We use absolute path to ensure worker can find it
-          const url = new URL("resources.parquet", window.location.href).href;
-          console.log("Attempting to load parquet from", url);
+          let url = new URL("resources.parquet", window.location.href).href;
+
+          // Check if we have a stored project config to load from remote
+          const storedConfig = loadProjectConfig();
+          if (storedConfig) {
+            // Construct GitHub Pages URL: https://<owner>.github.io/<repo>/resources.parquet
+            // distinct from the repo URL (which might be the code repo if not split yet, but user intends to split)
+            // If the user follows the "Data Repo" plan, the config will point to the Data Repo.
+            url = `https://${storedConfig.owner}.github.io/${storedConfig.repo}/resources.parquet`;
+            console.log("Found stored config, attempting to load remote parquet from", url);
+          } else {
+            console.log("No stored config, attempting to load local parquet from", url);
+          }
+
           const success = await importParquetFromUrl(url, "resources");
           if (success) {
             console.log("Successfully loaded resources.parquet");
             await refreshResourceCount();
           } else {
-            console.log("resources.parquet not found or failed to load");
-            setDataError("Failed to import resources.parquet (check console)");
+            console.log("resources.parquet not found or failed to load from", url);
+            // If remote failed, maybe try local fallback? 
+            // For now, let's keep it simple. If they have config, they expect remote.
+            if (storedConfig) {
+              console.log("Remote load failed, falling back to local...");
+              const localUrl = new URL("resources.parquet", window.location.href).href;
+              const localSuccess = await importParquetFromUrl(localUrl, "resources");
+              if (localSuccess) {
+                console.log("Successfully loaded local resources.parquet fallback");
+                await refreshResourceCount();
+                return;
+              }
+            }
+            setDataError(`Failed to import resources.parquet from ${url} (check console)`);
           }
         } catch (e) {
           console.warn("Failed to load parquet", e);
