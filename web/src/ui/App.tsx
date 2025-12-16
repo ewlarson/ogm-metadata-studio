@@ -244,8 +244,6 @@ export const App: React.FC = () => {
   const [editing, setEditing] = useState<Resource | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [classText, setClassText] = useState<string>("");
-  const [descText, setDescText] = useState<string>("");
   const [rememberToken, setRememberToken] = useState(false);
   const [showTabularEditor, setShowTabularEditor] = useState(false);
   const [isExportingDuckDb, setIsExportingDuckDb] = useState(false);
@@ -606,473 +604,803 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 px-4 py-6 max-w-6xl mx-auto space-y-4">
-        {!project && (
-          <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-            <h2 className="text-base font-semibold mb-2">Connect to GitHub</h2>
-            <p className="text-xs text-slate-400 mb-4">
-              This app talks directly to GitHub from your browser. Paste a{" "}
-              <span className="font-mono">repo</span>-scoped Personal Access
-              Token and repository details. We’ll remember the project
-              configuration locally, but not your token (unless you choose to
-              reuse it in this session).
-            </p>
+      <main className="flex-1 p-6 w-full mx-auto">
+        <div className="space-y-6">
+          {!project && (
+            <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+              <h2 className="text-base font-semibold mb-2">Connect to GitHub</h2>
+              <p className="text-xs text-slate-400 mb-4">
+                This app talks directly to GitHub from your browser. Paste a{" "}
+                <span className="font-mono">repo</span>-scoped Personal Access
+                Token and repository details. We’ll remember the project
+                configuration locally, but not your token (unless you choose to
+                reuse it in this session).
+              </p>
 
-            <form
-              onSubmit={handleConnect}
-              className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm"
-            >
-              <div>
-                <label className="block text-xs font-medium text-slate-200 mb-1">
-                  Owner (user or org)
-                </label>
-                <input
-                  value={owner}
-                  onChange={(e) => setOwner(e.target.value)}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                  placeholder="your-university"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-200 mb-1">
-                  Repository
-                </label>
-                <input
-                  value={repo}
-                  onChange={(e) => setRepo(e.target.value)}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                  placeholder="opengeometadata-records or full GitHub URL"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-200 mb-1">
-                  Branch
-                </label>
-                <input
-                  value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                  placeholder="main"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-200 mb-1">
-                  Metadata folder
-                </label>
-                <input
-                  value={metadataPath}
-                  onChange={(e) => setMetadataPath(e.target.value)}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                  placeholder="metadata"
-                />
-                <p className="mt-1 text-[10px] text-slate-500">
-                  Where Aardvark JSON files live, e.g.{" "}
-                  <span className="font-mono">metadata/*.json</span>.
-                </p>
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-slate-200 mb-1">
-                  GitHub Personal Access Token
-                </label>
-                <input
-                  type="password"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                  placeholder="Token with repo contents: read/write"
-                />
-                <div className="mt-1 flex items-center justify-between gap-3">
-                  <p className="text-[10px] text-slate-500">
-                    Create at{" "}
-                    <span className="font-mono">
-                      github.com/settings/tokens
-                    </span>{" "}
-                    with minimal <span className="font-mono">repo</span> contents
-                    permissions.
-                  </p>
-                  <label className="flex items-center gap-1 text-[10px] text-slate-400">
-                    <input
-                      type="checkbox"
-                      checked={rememberToken}
-                      onChange={(e) => setRememberToken(e.target.checked)}
-                      className="h-3 w-3 rounded border-slate-600 bg-slate-900"
-                    />
-                    <span>Remember token on this device</span>
+              <form
+                onSubmit={handleConnect}
+                className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm"
+              >
+                <div>
+                  <label className="block text-xs font-medium text-slate-200 mb-1">
+                    Owner (user or org)
                   </label>
+                  <input
+                    value={owner}
+                    onChange={(e) => setOwner(e.target.value)}
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                    placeholder="your-university"
+                  />
                 </div>
-              </div>
-              <div className="md:col-span-2 flex items-center justify-between mt-2">
-                <div className="text-[11px] text-slate-500">
-                  We never send credentials anywhere except directly to GitHub.
+                <div>
+                  <label className="block text-xs font-medium text-slate-200 mb-1">
+                    Repository
+                  </label>
+                  <input
+                    value={repo}
+                    onChange={(e) => setRepo(e.target.value)}
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                    placeholder="opengeometadata-records or full GitHub URL"
+                  />
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handleConnect}
-                    disabled={isConnecting}
-                    className="rounded-md bg-indigo-500 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-indigo-400 disabled:opacity-60"
-                  >
-                    {isConnecting ? "Connecting…" : "Connect to GitHub"}
-                  </button>
+                <div>
+                  <label className="block text-xs font-medium text-slate-200 mb-1">
+                    Branch
+                  </label>
+                  <input
+                    value={branch}
+                    onChange={(e) => setBranch(e.target.value)}
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                    placeholder="main"
+                  />
                 </div>
-              </div>
-            </form>
+                <div>
+                  <label className="block text-xs font-medium text-slate-200 mb-1">
+                    Metadata folder
+                  </label>
+                  <input
+                    value={metadataPath}
+                    onChange={(e) => setMetadataPath(e.target.value)}
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                    placeholder="metadata"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    Where Aardvark JSON files live, e.g.{" "}
+                    <span className="font-mono">metadata/*.json</span>.
+                  </p>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-200 mb-1">
+                    GitHub Personal Access Token
+                  </label>
+                  <input
+                    type="password"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                    placeholder="Token with repo contents: read/write"
+                  />
+                  <div className="mt-1 flex items-center justify-between gap-3">
+                    <p className="text-[10px] text-slate-500">
+                      Create at{" "}
+                      <span className="font-mono">
+                        github.com/settings/tokens
+                      </span>{" "}
+                      with minimal <span className="font-mono">repo</span> contents
+                      permissions.
+                    </p>
+                    <label className="flex items-center gap-1 text-[10px] text-slate-400">
+                      <input
+                        type="checkbox"
+                        checked={rememberToken}
+                        onChange={(e) => setRememberToken(e.target.checked)}
+                        className="h-3 w-3 rounded border-slate-600 bg-slate-900"
+                      />
+                      <span>Remember token on this device</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="md:col-span-2 flex items-center justify-between mt-2">
+                  <div className="text-[11px] text-slate-500">
+                    We never send credentials anywhere except directly to GitHub.
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={isConnecting}
+                      className="flex w-full justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
+                    >
+                      {isConnecting ? "Connecting..." : "Connect"}
+                    </button>
+                  </div>
+                </div>
+              </form>
 
-            {error && (
-              <div className="mt-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                {error}
-              </div>
-            )}
-          </section>
-        )}
-
-        <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-          <h2 className="text-base font-semibold mb-2">Resources in GitHub</h2>
-          {!project && resourceCount === 0 && (
-            <p className="text-xs text-slate-400">
-              Connect to GitHub above to load and edit your Aardvark records.
-            </p>
+              {error && (
+                <div className="mt-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                  {error}
+                </div>
+              )}
+            </section>
           )}
-          {(project || resourceCount > 0) && (
-            <>
-              <div className="flex items-center justify-between mb-3">
-                <div className="space-y-1">
-                  {isLoadingData && (
-                    <p className="text-xs text-slate-400">
-                      Loading metadata from GitHub…
-                    </p>
-                  )}
-                  {dataError && (
-                    <div className="mt-2 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                      {dataError}
-                    </div>
-                  )}
-                  {!isLoadingData && !dataError && resourceCount === 0 && project && (
-                    <p className="text-xs text-slate-400">
-                      No Aardvark JSON files found yet in{" "}
-                      <span className="font-mono">{metadataPath}</span>. Click "New resource" below to create one.
-                    </p>
-                  )}
-                  {!isLoadingData && !dataError && resourceCount > 0 && (
-                    <p className="text-xs text-slate-400">
-                      {resourceCount} resource{resourceCount !== 1 ? "s" : ""} in DuckDB
-                      {!project && " (Read-Only View)"}
-                    </p>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!project) {
-                        alert("Please connect to GitHub to create new resources.");
-                        return;
-                      }
-                      setSelectedId(null);
-                      setEditing({
-                        id: "",
-                        dct_title_s: "",
-                        dct_accessRights_s: "Public",
-                        gbl_resourceClass_sm: ["Datasets"],
-                        gbl_mdVersion_s: "Aardvark",
-                        schema_provider_s: "",
-                        dct_issued_s: "",
-                        dct_description_sm: [],
-                        dct_creator_sm: [],
-                        dct_publisher_sm: [],
-                        dct_subject_sm: [],
-                        dcat_keyword_sm: [],
-                        extra: {},
-                      });
-                      setClassText("Datasets");
-                      setDescText("");
-                      setSaveError(null);
-                    }}
-                    className={`rounded-md px-3 py-2 text-[11px] font-medium text-white shadow-sm ${project ? "bg-emerald-500 hover:bg-emerald-400" : "bg-slate-700 cursor-not-allowed opacity-50"
-                      }`}
-                  >
-                    + New resource
-                  </button>
-                  {resourceCount > 0 && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={handleExportDuckDb}
-                        disabled={isExportingDuckDb || !project}
-                        className="rounded-md border border-slate-700 px-3 py-2 text-[11px] text-slate-200 hover:bg-slate-800/70 disabled:opacity-60"
-                      >
-                        {isExportingDuckDb ? "Exporting..." : "Export DuckDB"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowTabularEditor(!showTabularEditor)}
-                        className="rounded-md border border-slate-700 px-3 py-2 text-[11px] text-slate-200 hover:bg-slate-800/70"
-                      >
-                        {showTabularEditor ? "Hide" : "Show"} Tabular Editor
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <ResourceListTable
-                selectedId={selectedId}
-                project={project}
-                isLoadingData={isLoadingData}
-                onSelectResource={(resource) => {
-                  setSelectedId(resource.id);
-                  setEditing({ ...resource });
-                  setClassText(resource.gbl_resourceClass_sm.join(" | "));
-                  setDescText(resource.dct_description_sm.join(" | "));
-                  setSaveError(null);
-                }}
-                onRefresh={refreshResourceCount}
-              />
-            </>
-          )}
-        </section>
 
-        {(project || resourceCount > 0) && showTabularEditor && (
-          <TabularEditor
-            onSelectResource={(resource) => {
-              setSelectedId(resource.id);
-              setEditing({ ...resource });
-              setClassText(resource.gbl_resourceClass_sm.join(" | "));
-              setDescText(resource.dct_description_sm.join(" | "));
-              setSaveError(null);
-              setShowTabularEditor(false);
-            }}
-            onRefresh={refreshResourceCount}
-          />
-        )}
-
-        {project && (
           <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-            <h2 className="text-base font-semibold mb-2">
-              {editing ? (selectedId ? "Edit resource" : "New resource") : "Resource editor"}
-            </h2>
-            {!editing && (
+            <h2 className="text-base font-semibold mb-2">Resources in GitHub</h2>
+            {!project && resourceCount === 0 && (
               <p className="text-xs text-slate-400">
-                Select a resource from the table above, or create a new one to begin editing.
+                Connect to GitHub above to load and edit your Aardvark records.
               </p>
             )}
-            {editing && (
+            {(project || resourceCount > 0) && (
               <>
-                <form
-                  className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm"
-                  onSubmit={(e) => e.preventDefault()}
-                >
-                  <div>
-                    <label className="block text-xs font-medium text-slate-200 mb-1">
-                      ID
-                    </label>
-                    <input
-                      value={editing.id}
-                      onChange={(e) =>
-                        setEditing((prev) =>
-                          prev ? { ...prev, id: e.target.value } : prev
-                        )
-                      }
-                      disabled={!!selectedId}
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 disabled:bg-slate-900/60 disabled:text-slate-500"
-                      placeholder="unique-id"
-                    />
+                <div className="flex items-center justify-between mb-3">
+                  <div className="space-y-1">
+                    {isLoadingData && (
+                      <p className="text-xs text-slate-400">
+                        Loading metadata from GitHub…
+                      </p>
+                    )}
+                    {dataError && (
+                      <div className="mt-2 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+                        {dataError}
+                      </div>
+                    )}
+                    {!isLoadingData && !dataError && resourceCount === 0 && project && (
+                      <p className="text-xs text-slate-400">
+                        No Aardvark JSON files found yet in{" "}
+                        <span className="font-mono">{metadataPath}</span>. Click "New resource" below to create one.
+                      </p>
+                    )}
+                    {!isLoadingData && !dataError && resourceCount > 0 && (
+                      <p className="text-xs text-slate-400">
+                        {resourceCount} resource{resourceCount !== 1 ? "s" : ""} in DuckDB
+                        {!project && " (Read-Only View)"}
+                      </p>
+                    )}
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-200 mb-1">
-                      Title (dct_title_s)
-                    </label>
-                    <input
-                      value={editing.dct_title_s}
-                      onChange={(e) =>
-                        setEditing((prev) =>
-                          prev
-                            ? { ...prev, dct_title_s: e.target.value }
-                            : prev
-                        )
-                      }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                      placeholder="Descriptive title"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-200 mb-1">
-                      Access rights (dct_accessRights_s)
-                    </label>
-                    <input
-                      value={editing.dct_accessRights_s}
-                      onChange={(e) =>
-                        setEditing((prev) =>
-                          prev
-                            ? { ...prev, dct_accessRights_s: e.target.value }
-                            : prev
-                        )
-                      }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                      placeholder="Public"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-200 mb-1">
-                      Resource class (gbl_resourceClass_sm)
-                      <span className="ml-1 text-[10px] text-slate-400">
-                        (pipe-delimited)
-                      </span>
-                    </label>
-                    <input
-                      value={classText}
-                      onChange={(e) => setClassText(e.target.value)}
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                      placeholder="Datasets | Maps"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-medium text-slate-200 mb-1">
-                      Description (dct_description_sm)
-                      <span className="ml-1 text-[10px] text-slate-400">
-                        (pipe-delimited)
-                      </span>
-                    </label>
-                    <textarea
-                      value={descText}
-                      onChange={(e) => setDescText(e.target.value)}
-                      rows={3}
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
-                    />
-                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!project) {
+                          alert("Please connect to GitHub to create new resources.");
+                          return;
+                        }
+                        setSelectedId(null);
+                        setEditing({
+                          id: "",
+                          dct_title_s: "",
+                          dct_accessRights_s: "Public",
+                          gbl_resourceClass_sm: ["Datasets"],
+                          gbl_mdVersion_s: "Aardvark",
+                          schema_provider_s: "",
+                          dct_issued_s: "",
 
-                  <div className="md:col-span-2 flex items-center justify-between mt-2">
-                    <div className="text-[11px] text-slate-500">
-                      Saving will write{" "}
-                      <span className="font-mono">
-                        {metadataPath}/{editing.id || "new-id"}.json
-                      </span>{" "}
-                      to GitHub.
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedId(null);
-                          setEditing(null);
-                          setSaveError(null);
-                        }}
-                        className="rounded-md border border-slate-700 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800/70"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isSaving || !editing.id || !editing.dct_title_s}
-                        onClick={async () => {
-                          if (!project || !editing) return;
-                          setIsSaving(true);
-                          setSaveError(null);
-                          try {
-                            const client = new GithubClient({ token: token.trim() });
-                            const normalizedClass = classText
-                              .split("|")
-                              .map((v) => v.trim())
-                              .filter(Boolean);
-                            const normalizedDesc = descText
-                              .split("|")
-                              .map((v) => v.trim())
-                              .filter(Boolean);
-                            const toSave: Resource = {
-                              ...editing,
-                              gbl_resourceClass_sm: normalizedClass,
-                              dct_description_sm: normalizedDesc,
-                            };
-                            const json = resourceToJson(toSave);
-                            const path = `${metadataPath}/${toSave.id}.json`;
-                            await upsertJsonFile(
-                              client,
-                              project,
-                              path,
-                              json,
-                              selectedId
-                                ? `Update Aardvark resource ${toSave.id}`
-                                : `Add Aardvark resource ${toSave.id}`
-                            );
+                          dct_alternative_sm: [],
+                          dct_description_sm: [],
+                          dct_language_sm: [],
+                          gbl_displayNote_sm: [],
 
-                            // Write to DuckDB first (source of truth)
-                            const allResources = await queryResources();
-                            const updatedResources: Resource[] = (() => {
-                              const without = allResources.filter(
-                                (r) => r.id !== toSave.id
-                              );
-                              return [...without, toSave].sort((a, b) =>
-                                a.id.localeCompare(b.id)
-                              );
-                            })();
-                            await syncDuckDbFromResources(updatedResources);
+                          dct_creator_sm: [],
+                          dct_publisher_sm: [],
 
-                            // Persist DuckDB to IndexedDB
-                            const ctx = await getDuckDbContext();
-                            if (ctx && ctx.db) {
-                              const { persistDuckDbToIndexedDB } = await import("../duckdb/duckdbClient");
-                              await persistDuckDbToIndexedDB(ctx.db);
-                            }
+                          gbl_resourceType_sm: [],
+                          dct_subject_sm: [],
+                          dcat_theme_sm: [],
+                          dcat_keyword_sm: [],
 
-                            // Refresh count
-                            await refreshResourceCount();
-                            setSelectedId(toSave.id);
+                          dct_temporal_sm: [],
+                          gbl_dateRange_drsim: [],
 
-                            // Sync to GitHub FROM DuckDB
-                            const duckdbResources = await queryResources();
-                            const resourcesCsv = buildResourcesCsv(duckdbResources);
-                            const distsCsv = buildDistributionsCsv(duckdbResources);
+                          dct_spatial_sm: [],
 
-                            if (resourcesCsv) {
-                              await upsertTextFile(
-                                client,
-                                project,
-                                "resources.csv",
-                                resourcesCsv,
-                                "Rebuild resources.csv from metadata"
-                              );
-                            }
-                            if (distsCsv) {
-                              await upsertTextFile(
-                                client,
-                                project,
-                                "distributions.csv",
-                                distsCsv,
-                                "Rebuild distributions.csv from metadata"
-                              );
-                            }
-                          } catch (err) {
-                            console.error(err);
-                            setSaveError(
-                              err instanceof Error
-                                ? err.message
-                                : "Failed to save resource to GitHub."
-                            );
-                          } finally {
-                            setIsSaving(false);
-                          }
-                        }}
-                        className="rounded-md bg-emerald-500 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-emerald-400 disabled:opacity-60"
-                      >
-                        {isSaving
-                          ? "Saving…"
-                          : selectedId
-                            ? "Save changes to GitHub"
-                            : "Create in GitHub"}
-                      </button>
-                    </div>
+                          dct_identifier_sm: [],
+                          dct_rights_sm: [],
+                          dct_rightsHolder_sm: [],
+                          dct_license_sm: [],
+
+                          pcdm_memberOf_sm: [],
+                          dct_isPartOf_sm: [],
+                          dct_source_sm: [],
+                          dct_isVersionOf_sm: [],
+                          dct_replaces_sm: [],
+                          dct_relation_sm: [],
+
+                          extra: {},
+                        });
+                        setSaveError(null);
+                      }}
+                      className={`rounded-md px-3 py-2 text-[11px] font-medium text-white shadow-sm ${project ? "bg-emerald-500 hover:bg-emerald-400" : "bg-slate-700 cursor-not-allowed opacity-50"
+                        }`}
+                    >
+                      + New resource
+                    </button>
+                    {resourceCount > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleExportDuckDb}
+                          disabled={isExportingDuckDb || !project}
+                          className="rounded-md border border-slate-700 px-3 py-2 text-[11px] text-slate-200 hover:bg-slate-800/70 disabled:opacity-60"
+                        >
+                          {isExportingDuckDb ? "Exporting..." : "Export DuckDB"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowTabularEditor(!showTabularEditor)}
+                          className="rounded-md border border-slate-700 px-3 py-2 text-[11px] text-slate-200 hover:bg-slate-800/70"
+                        >
+                          {showTabularEditor ? "Hide" : "Show"} Tabular Editor
+                        </button>
+                      </>
+                    )}
                   </div>
-                </form>
-                {saveError && (
-                  <div className="mt-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                    {saveError}
-                  </div>
-                )}
+                </div>
+                <ResourceListTable
+                  selectedId={selectedId}
+                  project={project}
+                  isLoadingData={isLoadingData}
+                  onSelectResource={(resource) => {
+                    setSelectedId(resource.id);
+                    setEditing({ ...resource });
+                    setSaveError(null);
+                  }}
+                  onRefresh={refreshResourceCount}
+                />
               </>
             )}
           </section>
-        )}
-      </main>
-    </div>
+
+          {(project || resourceCount > 0) && showTabularEditor && (
+            <TabularEditor
+              onSelectResource={(resource) => {
+                setSelectedId(resource.id);
+                setEditing({ ...resource });
+                setSaveError(null);
+                setShowTabularEditor(false);
+              }}
+              onRefresh={refreshResourceCount}
+            />
+          )}
+
+          {project && (
+            <div className="flex flex-col lg:flex-row gap-6 items-start">
+              {/* Table of Contents Sidebar */}
+              <aside className="w-full lg:w-64 flex-shrink-0 lg:sticky lg:top-4">
+                <nav className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-1">
+                  <h3 className="mb-3 text-xs font-semibold text-slate-400 uppercase tracking-wider px-2">
+                    Sections
+                  </h3>
+                  {[
+                    { id: "section-required", label: "Required" },
+                    { id: "section-identification", label: "Identification" },
+                    { id: "section-credits", label: "Credits" },
+                    { id: "section-categories", label: "Categories" },
+                    { id: "section-temporal", label: "Temporal" },
+                    { id: "section-spatial", label: "Spatial" },
+                    { id: "section-administrative", label: "Administrative" },
+                    { id: "section-object", label: "Object" },
+                    { id: "section-relations", label: "Relations" },
+                  ].map((item) => (
+                    <a
+                      key={item.id}
+                      href={`#${item.id}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        document.getElementById(item.id)?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        });
+                      }}
+                      className="block rounded-md px-2 py-1.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                    >
+                      {item.label}
+                    </a>
+                  ))}
+                </nav>
+              </aside>
+
+              {/* Main Form Area */}
+              <section className="flex-1 min-w-0 rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+                <h2 className="text-base font-semibold mb-2">
+                  {editing ? (selectedId ? "Edit resource" : "New resource") : "Resource editor"}
+                </h2>
+                {!editing && (
+                  <p className="text-xs text-slate-400">
+                    Select a resource from the table above, or create a new one to begin editing.
+                  </p>
+                )}
+                {editing && (
+                  <>
+                    <form
+                      className="mt-3 text-sm"
+                      onSubmit={(e) => e.preventDefault()}
+                    >
+                      <div className="space-y-8">
+                        {/* Required Sections */}
+                        <div id="section-required" className="scroll-mt-6 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                          <h3 className="mb-4 text-base font-semibold text-slate-200 border-b border-slate-700 pb-2">Required</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">ID</label>
+                              <input
+                                value={editing.id}
+                                onChange={(e) => setEditing({ ...editing, id: e.target.value })}
+                                disabled={!!selectedId}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 disabled:bg-slate-900/60"
+                              />
+                            </div>
+                            <div className="lg:col-span-2">
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Title</label>
+                              <input
+                                value={editing.dct_title_s}
+                                onChange={(e) => setEditing({ ...editing, dct_title_s: e.target.value })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Resource Class (pipe-delimited)</label>
+                              <input
+                                value={editing.gbl_resourceClass_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, gbl_resourceClass_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                                placeholder="Datasets | Maps"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Access Rights</label>
+                              <select
+                                value={editing.dct_accessRights_s}
+                                onChange={(e) => setEditing({ ...editing, dct_accessRights_s: e.target.value })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              >
+                                <option value="Public">Public</option>
+                                <option value="Restricted">Restricted</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Format</label>
+                              <input
+                                value={editing.dct_format_s ?? ""}
+                                onChange={(e) => setEditing({ ...editing, dct_format_s: e.target.value || null })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                                placeholder="Shapefile"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Identification */}
+                        <div id="section-identification" className="scroll-mt-6 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                          <h3 className="mb-4 text-base font-semibold text-slate-200 border-b border-slate-700 pb-2">Identification</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+                            <div className="md:col-span-2">
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Description (pipe-delimited)</label>
+                              <textarea
+                                value={editing.dct_description_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_description_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                rows={3}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Alt Title (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_alternative_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_alternative_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Display Note (pipe-delimited)</label>
+                              <input
+                                value={editing.gbl_displayNote_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, gbl_displayNote_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Language (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_language_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_language_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                                placeholder="eng"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Credits */}
+                        <div id="section-credits" className="scroll-mt-6 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                          <h3 className="mb-4 text-base font-semibold text-slate-200 border-b border-slate-700 pb-2">Credits</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Creator (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_creator_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_creator_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Publisher (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_publisher_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_publisher_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Provider</label>
+                              <input
+                                value={editing.schema_provider_s ?? ""}
+                                onChange={(e) => setEditing({ ...editing, schema_provider_s: e.target.value || null })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Categories */}
+                        <div id="section-categories" className="scroll-mt-6 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                          <h3 className="mb-4 text-base font-semibold text-slate-200 border-b border-slate-700 pb-2">Categories</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Resource Type (pipe-delimited)</label>
+                              <input
+                                value={editing.gbl_resourceType_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, gbl_resourceType_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Subject (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_subject_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_subject_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Theme (pipe-delimited)</label>
+                              <input
+                                value={editing.dcat_theme_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dcat_theme_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Keyword (pipe-delimited)</label>
+                              <input
+                                value={editing.dcat_keyword_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dcat_keyword_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Temporal */}
+                        <div id="section-temporal" className="scroll-mt-6 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                          <h3 className="mb-4 text-base font-semibold text-slate-200 border-b border-slate-700 pb-2">Temporal</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Temporal (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_temporal_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_temporal_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Date Issued</label>
+                              <input
+                                value={editing.dct_issued_s ?? ""}
+                                onChange={(e) => setEditing({ ...editing, dct_issued_s: e.target.value || null })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                                placeholder="YYYY-MM-DD"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Date Range (pipe-delimited)</label>
+                              <input
+                                value={editing.gbl_dateRange_drsim.join("|")}
+                                onChange={(e) => setEditing({ ...editing, gbl_dateRange_drsim: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Spatial */}
+                        <div id="section-spatial" className="scroll-mt-6 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                          <h3 className="mb-4 text-base font-semibold text-slate-200 border-b border-slate-700 pb-2">Spatial</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Spatial Coverage (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_spatial_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_spatial_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Bounding Box (ENVELOPE)</label>
+                              <input
+                                value={editing.dcat_bbox ?? ""}
+                                onChange={(e) => setEditing({ ...editing, dcat_bbox: e.target.value || null })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                                placeholder="ENVELOPE(-180, 180, 90, -90)"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Geometry</label>
+                              <input
+                                value={editing.locn_geometry ?? ""}
+                                onChange={(e) => setEditing({ ...editing, locn_geometry: e.target.value || null })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div className="flex items-center mt-6">
+                              <input
+                                type="checkbox"
+                                checked={editing.gbl_georeferenced_b ?? false}
+                                onChange={(e) => setEditing({ ...editing, gbl_georeferenced_b: e.target.checked })}
+                                className="mr-2 rounded border-slate-700 bg-slate-950"
+                              />
+                              <label className="block text-xs font-medium text-slate-200">Georeferenced</label>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Administrative */}
+                        <div id="section-administrative" className="scroll-mt-6 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                          <h3 className="mb-4 text-base font-semibold text-slate-200 border-b border-slate-700 pb-2">Administrative</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Identifier (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_identifier_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_identifier_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">WXS Identifier</label>
+                              <input
+                                value={editing.gbl_wxsIdentifier_s ?? ""}
+                                onChange={(e) => setEditing({ ...editing, gbl_wxsIdentifier_s: e.target.value || null })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Rights (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_rights_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_rights_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Rights Holder (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_rightsHolder_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_rightsHolder_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">License (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_license_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_license_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div className="flex items-center mt-6">
+                              <input
+                                type="checkbox"
+                                checked={editing.gbl_suppressed_b ?? false}
+                                onChange={(e) => setEditing({ ...editing, gbl_suppressed_b: e.target.checked })}
+                                className="mr-2 rounded border-slate-700 bg-slate-950"
+                              />
+                              <label className="block text-xs font-medium text-slate-200">Suppressed</label>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Object */}
+                        <div id="section-object" className="scroll-mt-6 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                          <h3 className="mb-4 text-base font-semibold text-slate-200 border-b border-slate-700 pb-2">Object</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">File Size</label>
+                              <input
+                                value={editing.gbl_fileSize_s ?? ""}
+                                onChange={(e) => setEditing({ ...editing, gbl_fileSize_s: e.target.value || null })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Relations */}
+                        <div id="section-relations" className="scroll-mt-6 rounded-lg border border-slate-700 bg-slate-900/50 p-6">
+                          <h3 className="mb-4 text-base font-semibold text-slate-200 border-b border-slate-700 pb-2">Relations</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Member Of (pipe-delimited)</label>
+                              <input
+                                value={editing.pcdm_memberOf_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, pcdm_memberOf_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Is Part Of (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_isPartOf_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_isPartOf_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Source (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_source_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_source_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Is Version Of (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_isVersionOf_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_isVersionOf_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Replaces (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_replaces_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_replaces_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-slate-200 mb-1">Relation (pipe-delimited)</label>
+                              <input
+                                value={editing.dct_relation_sm.join("|")}
+                                onChange={(e) => setEditing({ ...editing, dct_relation_sm: e.target.value.split("|").map(s => s.trim()).filter(Boolean) })}
+                                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-6 border-t border-slate-800 pt-4">
+                        <div className="text-[11px] text-slate-500">
+                          Saving will write{" "}
+                          <span className="font-mono">
+                            {metadataPath}/{editing.id || "new-id"}.json
+                          </span>{" "}
+                          to GitHub.
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedId(null);
+                              setEditing(null);
+                              setSaveError(null);
+                            }}
+                            className="rounded-md border border-slate-700 px-3 py-2 text-xs text-slate-200 hover:bg-slate-800/70"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isSaving || !editing.id || !editing.dct_title_s}
+                            onClick={async () => {
+                              if (!project || !editing) return;
+
+                              setIsSaving(true);
+                              setSaveError(null);
+                              try {
+                                const client = new GithubClient({ token: token.trim() });
+                                const toSave: Resource = {
+                                  ...editing,
+                                };
+                                const json = resourceToJson(toSave);
+                                const path = `${metadataPath}/${toSave.id}.json`;
+                                await upsertJsonFile(
+                                  client,
+                                  project,
+                                  path,
+                                  json,
+                                  selectedId
+                                    ? `Update Aardvark resource ${toSave.id}`
+                                    : `Add Aardvark resource ${toSave.id}`
+                                );
+
+                                // Write to DuckDB first (source of truth)
+                                const allResources = await queryResources();
+                                const updatedResources: Resource[] = (() => {
+                                  const without = allResources.filter(
+                                    (r) => r.id !== toSave.id
+                                  );
+                                  return [...without, toSave].sort((a, b) =>
+                                    a.id.localeCompare(b.id)
+                                  );
+                                })();
+                                await syncDuckDbFromResources(updatedResources);
+
+                                // Persist DuckDB to IndexedDB
+                                const ctx = await getDuckDbContext();
+                                if (ctx && ctx.db) {
+                                  const { persistDuckDbToIndexedDB } = await import("../duckdb/duckdbClient");
+                                  await persistDuckDbToIndexedDB(ctx.db);
+                                }
+
+                                // Refresh count
+                                await refreshResourceCount();
+                                setSelectedId(toSave.id);
+
+                                // Sync to GitHub FROM DuckDB
+                                const duckdbResources = await queryResources();
+                                const resourcesCsv = buildResourcesCsv(duckdbResources);
+                                const distsCsv = buildDistributionsCsv(duckdbResources);
+
+                                if (resourcesCsv) {
+                                  await upsertTextFile(
+                                    client,
+                                    project,
+                                    "resources.csv",
+                                    resourcesCsv,
+                                    "Rebuild resources.csv from metadata"
+                                  );
+                                }
+                                if (distsCsv) {
+                                  await upsertTextFile(
+                                    client,
+                                    project,
+                                    "distributions.csv",
+                                    distsCsv,
+                                    "Rebuild distributions.csv from metadata"
+                                  );
+                                }
+                              } catch (err) {
+                                console.error(err);
+                                setSaveError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Failed to save resource to GitHub."
+                                );
+                              } finally {
+                                setIsSaving(false);
+                              }
+                            }}
+                            className="rounded-md bg-emerald-500 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-emerald-400 disabled:opacity-60"
+                          >
+                            {isSaving
+                              ? "Saving…"
+                              : selectedId
+                                ? "Save changes to GitHub"
+                                : "Create in GitHub"}
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  </>
+                )}
+              </section>
+            </div>
+          )}
+        </div>
+      </main >
+    </div >
   );
 };
-

@@ -4,6 +4,20 @@ A browser-based editor for [OpenGeoMetadata Aardvark](https://opengeometadata.or
 
 This application allows you to manage geospatial metadata JSON files stored in a GitHub repository directly from your browser, with powerful tabular editing capabilities backed by a local in-browser SQL database.
 
+## Deployment
+
+This project is configured to automatically deploy to **GitHub Pages** using GitHub Actions.
+
+### One-Time Setup
+1. Go to your repository **Settings** > **Pages**.
+2. Under **Build and deployment** > **Source**, select **GitHub Actions**.
+3. The `Data Pipeline & Deploy` workflow will automatically pick this up on the next push.
+
+### Architecture
+- **Source**: JSON files in `metadata/` are the source of truth.
+- **Build**: The `build:db` script runs in CI, compiling all JSONs into a single `resources.parquet` file.
+- **Frontend**: The React app loads this Parquet file on startup, enabling a fast, read-only experience without needing a GitHub token.
+
 ## Features
 
 - **GitHub Integration**: Connect directly to your metadata repository using a Personal Access Token (PAT). No backend server required.
