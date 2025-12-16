@@ -1,0 +1,32 @@
+{
+  "id": "megan-foo",
+  "dct_title_s": "Megan Foo",
+  "dct_accessRights_s": "Public",
+  "gbl_resourceClass_sm": [
+    "Datasets"
+  ],
+  "gbl_mdVersion_s": "Aardvark",
+  "dct_alternative_sm": [],
+  "dct_description_sm": [],
+  "dct_language_sm": [],
+  "gbl_displayNote_sm": [],
+  "dct_creator_sm": [],
+  "dct_publisher_sm": [],
+  "gbl_resourceType_sm": [],
+  "dct_subject_sm": [],
+  "dcat_theme_sm": [],
+  "dcat_keyword_sm": [],
+  "dct_temporal_sm": [],
+  "gbl_dateRange_drsim": [],
+  "dct_spatial_sm": [],
+  "dct_identifier_sm": [],
+  "dct_rights_sm": [],
+  "dct_rightsHolder_sm": [],
+  "dct_license_sm": [],
+  "pcdm_memberOf_sm": [],
+  "dct_isPartOf_sm": [],
+  "dct_source_sm": [],
+  "dct_isVersionOf_sm": [],
+  "dct_replaces_sm": [],
+  "dct_relation_sm": []
+}
