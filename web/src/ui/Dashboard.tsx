@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Resource } from "../aardvark/model";
-import { facetedSearch, FacetedSearchRequest } from "../duckdb/duckdbClient";
+import { facetedSearch, FacetedSearchRequest, exportFilteredResults } from "../duckdb/duckdbClient";
 import { ProjectConfig } from "../github/client";
 import { useUrlState } from "../hooks/useUrlState";
 
@@ -24,6 +24,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
     const [facetsData, setFacetsData] = useState<Record<string, { value: string; count: number }[]>>({});
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [isExporting, setIsExporting] = useState(false);
 
     // URL State Definition
     interface DashboardState {
@@ -169,6 +170,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
         });
     };
 
+    const handleExport = async (format: 'json' | 'csv') => {
+        setIsExporting(true);
+        try {
+            const filters: Record<string, any> = {};
+            for (const [field, values] of Object.entries(selectedFacets)) {
+                if (values.length > 0) {
+                    filters[field] = { any: values };
+                }
+            }
+
+            const req: FacetedSearchRequest = {
+                q: q,
+                filters,
+                facets: [],
+                page: { size: 1000, from: 0 },
+                sort: []
+            };
+
+            const blob = await exportFilteredResults(req, format);
+            if (!blob) throw new Error("Export yielded no data");
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `aardvark_export_${new Date().toISOString().slice(0, 10)}.${format === 'json' ? 'zip' : 'csv'}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+        } catch (e) {
+            console.error("Export failed", e);
+            alert("Export failed. See console.");
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     const totalPages = Math.ceil(total / pageSize);
 
     return (
@@ -238,6 +277,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                         <span className="text-sm text-slate-400">
                             Found <span className="text-white font-medium">{total}</span> results
                         </span>
+
+                        <div className="flex items-center bg-slate-800 rounded-md p-0.5 border border-slate-700">
+                            <button
+                                onClick={() => handleExport('json')}
+                                disabled={isExporting || total === 0}
+                                className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                title="Download as Zip of JSON files"
+                            >
+                                JSON
+                            </button>
+                            <div className="w-px bg-slate-700 h-4 mx-0.5"></div>
+                            <button
+                                onClick={() => handleExport('csv')}
+                                disabled={isExporting || total === 0}
+                                className="px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                title="Download as CSV"
+                            >
+                                CSV
+                            </button>
+                        </div>
+
                         <button
                             onClick={onCreate}
                             className="ml-4 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"

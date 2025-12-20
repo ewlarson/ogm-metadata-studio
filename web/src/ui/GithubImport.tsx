@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { GithubClient, GithubRepoRef } from '../github/client';
-import { importJsonData, saveDb } from '../duckdb/duckdbClient'; // Added saveDb
-import JSZip from 'jszip'; // Added JSZip
+import { importJsonData, saveDb } from '../duckdb/duckdbClient';
 
 export const GithubImport: React.FC = () => {
     // Inputs

@@ -135,70 +135,171 @@ async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
   await conn.query(`CREATE TABLE IF NOT EXISTS distributions (resource_id VARCHAR, relation_key VARCHAR, url VARCHAR)`);
 }
 
+export async function zipResources(resources: Resource[]): Promise<Blob> {
+  const zip = new JSZip();
+  let count = 0;
+  for (const res of resources) {
+    if (!res.id) continue;
+    const json = resourceToJson(res);
+    zip.file(`${res.id}.json`, JSON.stringify(json, null, 2));
+    count++;
+  }
+  console.log(`Zipped ${count} resources.`);
+  return await zip.generateAsync({ type: "blob" });
+}
+
+function csvResources(resources: Resource[]): Blob {
+  const fields = [...SCALAR_FIELDS, ...REPEATABLE_STRING_FIELDS];
+
+  // Invert mapping: SolrField -> FriendlyHeader
+  const fieldToLabel: Record<string, string> = {};
+  for (const [label, field] of Object.entries(CSV_HEADER_MAPPING)) {
+    fieldToLabel[field] = label;
+  }
+
+  const headerRow = fields.map(f => {
+    // Simple CSV escaping for headers just in case
+    const label = fieldToLabel[f] || f;
+    if (label.includes(",")) return `"${label}"`;
+    return label;
+  }).join(",");
+
+  const rows = resources.map(res => {
+    return fields.map(h => {
+      const val = (res as any)[h];
+      if (Array.isArray(val)) return `"${val.join("|").replace(/"/g, '""')}"`;
+      if (val === null || val === undefined) return "";
+      const str = String(val);
+      if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    }).join(",");
+  });
+  const csvContent = [headerRow, ...rows].join("\n");
+  return new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+}
+
+async function fetchResourcesByIds(conn: duckdb.AsyncDuckDBConnection, ids: string[]): Promise<Resource[]> {
+  if (ids.length === 0) return [];
+
+  const idList = ids.map((id: string) => `'${id.replace(/'/g, "''")}'`).join(",");
+
+  // Check if ID list is too long? DuckDB usually ok ~10k.
+
+  const scalarSql = `SELECT * FROM resources WHERE id IN (${idList})`;
+  const mvSql = `SELECT * FROM resources_mv WHERE id IN (${idList})`;
+  const distSql = `SELECT * FROM distributions WHERE resource_id IN (${idList})`;
+
+  const [scalarRes, mvRes, distRes] = await Promise.all([
+    conn.query(scalarSql),
+    conn.query(mvSql),
+    conn.query(distSql)
+  ]);
+
+  const scalarRows = scalarRes.toArray();
+
+  const mvMap = new Map<string, any[]>();
+  for (const r of mvRes.toArray()) {
+    if (!mvMap.has(r.id)) mvMap.set(r.id, []);
+    mvMap.get(r.id)?.push(r);
+  }
+
+  const distMap = new Map<string, any[]>();
+  for (const r of distRes.toArray()) {
+    if (!distMap.has(r.resource_id)) distMap.set(r.resource_id, []);
+    distMap.get(r.resource_id)?.push(r);
+  }
+
+  const resources: Resource[] = [];
+  for (const row of scalarRows) {
+    const r: any = { ...row };
+    const mvs = mvMap.get(r.id) || [];
+    for (const m of mvs) {
+      if (!r[m.field]) r[m.field] = [];
+      r[m.field].push(m.val);
+    }
+    resources.push(resourceFromRow(r, distMap.get(r.id) || []));
+  }
+  return resources;
+}
+
+export function compileFacetedWhere(req: FacetedSearchRequest, omitField: string | null = null): { sql: string } {
+  let clauses: string[] = ["1=1"];
+
+  if (req.q && req.q.trim()) {
+    const k = req.q.replace(/'/g, "''");
+    clauses.push(`(
+        dct_title_s ILIKE '%${k}%' OR
+        id ILIKE '%${k}%' OR
+        EXISTS (SELECT 1 FROM resources_mv mv WHERE mv.id = resources.id AND mv.val ILIKE '%${k}%')
+      )`);
+  }
+
+  if (req.filters) {
+    for (const [field, condition] of Object.entries(req.filters)) {
+      if (field === omitField) continue;
+      const isScalar = SCALAR_FIELDS.includes(field);
+
+      if (condition.any && Array.isArray(condition.any) && condition.any.length > 0) {
+        const values = condition.any.map((v: string) => `'${String(v).replace(/'/g, "''")}'`).join(",");
+        if (isScalar) {
+          clauses.push(`"${field}" IN (${values})`);
+        } else {
+          clauses.push(`EXISTS (
+                    SELECT 1 FROM resources_mv m 
+                    WHERE m.id = resources.id 
+                    AND m.field = '${field}' 
+                    AND m.val IN (${values})
+                )`);
+        }
+      }
+
+      if (condition.all && Array.isArray(condition.all) && condition.all.length > 0) {
+        const values = condition.all.map((v: string) => `'${String(v).replace(/'/g, "''")}'`).join(",");
+        const count = condition.all.length;
+        clauses.push(`(
+                SELECT count(DISTINCT m.val) 
+                FROM resources_mv m
+                WHERE m.id = resources.id
+                AND m.field = '${field}'
+                AND m.val IN (${values})
+             ) = ${count}`);
+      }
+
+      if (condition.gte !== undefined) clauses.push(`CAST("${field}" AS INTEGER) >= ${Number(condition.gte)}`);
+      if (condition.lte !== undefined) clauses.push(`CAST("${field}" AS INTEGER) <= ${Number(condition.lte)}`);
+    }
+  }
+  return { sql: clauses.join(" AND ") };
+}
+
 export async function exportAardvarkJsonZip(): Promise<Blob | null> {
+  const resources = await queryResources();
+  return zipResources(resources);
+}
+
+export async function exportFilteredResults(req: FacetedSearchRequest, format: 'json' | 'csv'): Promise<Blob | null> {
   const ctx = await getDuckDbContext();
   if (!ctx) return null;
   const { conn } = ctx;
 
-  const zip = new JSZip();
+  // 1. Get IDs
+  const where = compileFacetedWhere(req).sql;
+  const idsRes = await conn.query(`SELECT id FROM resources WHERE ${where}`);
+  const ids = idsRes.toArray().map((r: any) => r.id);
 
-  // 1. Fetch Key Data
-  const resources = await queryResources();
-  const distRes = await conn.query("SELECT * FROM distributions");
-  const allDistributions = distRes.toArray().map((r: any) => ({
-    resource_id: r.resource_id,
-    relation_key: r.relation_key,
-    url: r.url
-  }));
+  console.log(`Exporting ${ids.length} resources as ${format}...`);
 
-  // 2. Process each resource
-  let count = 0;
-  for (const res of resources) {
-    if (!res.id) continue;
+  // 2. Fetch Data
+  const resources = await fetchResourcesByIds(conn, ids);
 
-    // Find distributions for this resource
-    const resDistributions = allDistributions.filter((d: any) => d.resource_id === res.id);
-
-    // Build base JSON (flat fields)
-    // Note: We reconstruct dct_references_s from the distributions table below.
-
-    // Use resourceToJson to get a clean, flattened Aardvark JSON object
-    // This handles flattening 'extra' fields and ensuring correct types
-    let jsonResource: any = resourceToJson(res);
-
-    // Construct dct_references_s object
-    if (resDistributions.length > 0) {
-      const references: Record<string, string> = {};
-      for (const d of resDistributions) {
-        // Map relation_key to URI
-        let key = d.relation_key;
-        if (REFERENCE_URI_MAPPING[d.relation_key?.toLowerCase()]) {
-          key = REFERENCE_URI_MAPPING[d.relation_key.toLowerCase()];
-        }
-
-        // If mapping failed, maybe use raw key? Or verify expectations.
-        // Standard OGM schema keys are URIs.
-        if (d.url) {
-          references[key] = d.url;
-        }
-      }
-      // Add stringified references to the object
-      // Aardvark spec says `dct_references_s` is a JSON String.
-      jsonResource.dct_references_s = JSON.stringify(references);
-    }
-
-    // Clean up Extra (remove nulls, internals) through a clean clone logic if needed.
-    // For now, assume `res` is mostly clean.
-
-    // Add to Zip
-    // Filename: ID.json
-    const filename = `${res.id}.json`;
-    zip.file(filename, JSON.stringify(jsonResource, null, 2));
-    count++;
+  // 3. Format
+  if (format === 'json') {
+    return zipResources(resources);
+  } else {
+    return csvResources(resources);
   }
-
-  console.log(`Zipped ${count} resources.`);
-  return await zip.generateAsync({ type: "blob" });
 }
 export async function saveDb() {
   const ctx = await getDuckDbContext();
@@ -950,79 +1051,13 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
   const offset = req.page?.from ?? 0;
   const sort = req.sort?.[0] ?? { field: "dct_title_s", dir: "asc" };
 
-  // Helper to compile WHERE clause
-  // omitField is for disjunctive faceting (exclude filter on the facet field itself)
-  const compileWhere = (omitField: string | null = null): { sql: string } => {
-    let clauses: string[] = ["1=1"];
-
-    // 1. Keyword Search
-    if (req.q && req.q.trim()) {
-      const k = req.q.replace(/'/g, "''");
-      clauses.push(`(
-        dct_title_s ILIKE '%${k}%' OR
-        id ILIKE '%${k}%' OR
-        EXISTS (SELECT 1 FROM resources_mv mv WHERE mv.id = resources.id AND mv.val ILIKE '%${k}%')
-      )`);
-    }
-
-    // 2. Filters
-    if (req.filters) {
-      for (const [field, condition] of Object.entries(req.filters)) {
-        if (field === omitField) continue;
-
-        const isScalar = SCALAR_FIELDS.includes(field);
-
-        // Handle "any" (OR)
-        if (condition.any && Array.isArray(condition.any) && condition.any.length > 0) {
-          const values = condition.any.map((v: string) => `'${String(v).replace(/'/g, "''")}'`).join(",");
-          if (isScalar) {
-            clauses.push(`"${field}" IN (${values})`);
-          } else {
-            // MV: EXISTS (SELECT 1 FROM resources_mv WHERE id=r.id AND field=F AND val IN (...))
-            clauses.push(`EXISTS (
-                    SELECT 1 FROM resources_mv m 
-                    WHERE m.id = resources.id 
-                    AND m.field = '${field}' 
-                    AND m.val IN (${values})
-                )`);
-          }
-        }
-
-        // Handle "all" (AND) - mainly for MV
-        if (condition.all && Array.isArray(condition.all) && condition.all.length > 0) {
-          const values = condition.all.map((v: string) => `'${String(v).replace(/'/g, "''")}'`).join(",");
-          const count = condition.all.length;
-          // MV: Has ALL these values. 
-          // Logic: count(distinct val) where val in (list) == list.length
-          clauses.push(`(
-                SELECT count(DISTINCT m.val) 
-                FROM resources_mv m
-                WHERE m.id = resources.id
-                AND m.field = '${field}'
-                AND m.val IN (${values})
-             ) = ${count}`);
-        }
-
-        // Handle Ranges (gte, lte) - assume Scalar for ranges usually (Year, Date)
-        if (condition.gte !== undefined) {
-          clauses.push(`CAST("${field}" AS INTEGER) >= ${Number(condition.gte)}`);
-        }
-        if (condition.lte !== undefined) {
-          clauses.push(`CAST("${field}" AS INTEGER) <= ${Number(condition.lte)}`);
-        }
-      }
-    }
-
-    return { sql: clauses.join(" AND ") };
-  };
-
   // --- A. Results Query ---
 
-  const baseWhere = compileWhere(null).sql;
+  const baseWhere = compileFacetedWhere(req, null).sql;
   const safeSortCol = sort.field.replace(/[^a-zA-Z0-9_]/g, "");
 
-  const resultsQuery = `
-    SELECT * FROM resources
+  const idsQuery = `
+    SELECT id FROM resources
     WHERE ${baseWhere}
     ORDER BY "${safeSortCol}" ${sort.dir.toUpperCase()}
     LIMIT ${limit} OFFSET ${offset}
@@ -1030,60 +1065,16 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
 
   const countQuery = `SELECT count(*) as c FROM resources WHERE ${baseWhere}`;
 
-  // Execute Results & Total
-  // We need to hydrate results similarly to queryResources (joining MVs etc)
-  // For simplicity MVP: just return scalars and we hydrate MVs if needed or assume UI mostly needs scalars + basic MV?
-  // User DSL implies we want full records.
-
-  // Actually, let's fetch IDs first then hydration? 
-  // No, let's try to get simple results first.
-
-  const [resData, resCount] = await Promise.all([
-    conn.query(resultsQuery),
+  const [idsRes, countRes] = await Promise.all([
+    conn.query(idsQuery),
     conn.query(countQuery)
   ]);
 
-  const total = Number(resCount.toArray()[0].c);
+  const total = Number(countRes.toArray()[0].c);
+  const ids = idsRes.toArray().map((r: any) => r.id);
 
-  // Hydrate MVs for the result set
-  // This is a bit expensive per row but cleaner code-wise to reuse existing logic?
-  // Or just do a bulk fetch.
-  // Let's rely on basic hydration for now.
-  const scalarRows = resData.toArray();
-  const resources: Resource[] = [];
-
-  // Bulk fetch MVs for these IDs
-  if (scalarRows.length > 0) {
-    const ids = scalarRows.map((r: any) => `'${r.id}'`).join(",");
-    const mvRes = await conn.query(`SELECT * FROM resources_mv WHERE id IN (${ids})`);
-    const distRes = await conn.query(`SELECT * FROM distributions WHERE resource_id IN (${ids})`);
-
-    const mvMap = new Map<string, any[]>();
-    for (const r of mvRes.toArray()) {
-      if (!mvMap.has(r.id)) mvMap.set(r.id, []);
-      mvMap.get(r.id)?.push(r);
-    }
-
-    const distMap = new Map<string, any[]>();
-    for (const r of distRes.toArray()) {
-      if (!distMap.has(r.resource_id)) distMap.set(r.resource_id, []);
-      distMap.get(r.resource_id)?.push(r);
-    }
-
-    for (const row of scalarRows) {
-      const r: any = { ...row }; // scalars
-
-      // Attach MVs
-      const mvs = mvMap.get(r.id) || [];
-      for (const m of mvs) {
-        if (!r[m.field]) r[m.field] = [];
-        r[m.field].push(m.val);
-      }
-
-      // Convert via mapping to ensure types
-      resources.push(resourceFromRow(r, distMap.get(r.id) || []));
-    }
-  }
+  // Hydrate using helper
+  const resources = await fetchResourcesByIds(conn, ids);
 
   // --- B. Facets Query ---
 
@@ -1092,13 +1083,10 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
   if (req.facets) {
     await Promise.all(req.facets.map(async (f) => {
       const limit = f.limit ?? 10;
-
-      // Disjunctive: Omit filter for THIS field
-      const fWhere = compileWhere(f.field).sql;
+      const fWhere = compileFacetedWhere(req, f.field).sql; // Omit THIS field
 
       let fSql = "";
       if (SCALAR_FIELDS.includes(f.field)) {
-        // Scalar Aggregation
         fSql = `
                   SELECT "${f.field}" as val, count(*) as c 
                   FROM resources 
@@ -1109,9 +1097,6 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
                   LIMIT ${limit}
               `;
       } else {
-        // MV Aggregation
-        // We need to join MVs to the filtered resource set
-        // "filtered resource set" is SELECT id FROM resources WHERE ...
         fSql = `
                   WITH filtered AS (SELECT id FROM resources WHERE ${fWhere})
                   SELECT m.val, count(DISTINCT m.id) as c
