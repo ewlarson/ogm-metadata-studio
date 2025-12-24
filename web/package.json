@@ -13,13 +13,17 @@
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.28.0",
     "@types/jszip": "^3.4.1",
+    "@types/leaflet": "^1.9.21",
     "@types/react-select": "^5.0.1",
     "fuse.js": "^7.0.0",
     "jszip": "^3.10.1",
+    "leaflet": "^1.9.4",
     "p-limit": "^7.2.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "react-select": "^5.10.2"
+    "react-leaflet": "^4.2.1",
+    "react-select": "^5.10.2",
+    "recharts": "^3.6.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

@@ -259,7 +259,7 @@ export const App: React.FC = () => {
                 ? "bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white font-medium"
                 : "border-transparent text-slate-600 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-800/70"}`}
             >
-              Admin List
+              Resources
             </button>
             <button
               type="button"

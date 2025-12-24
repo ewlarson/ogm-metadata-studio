@@ -131,10 +131,37 @@ async function createDB(wUrl: string, waUrl: string): Promise<duckdb.AsyncDuckDB
 async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
   // resources table (scalars)
   const scalarCols = SCALAR_FIELDS.map(f => `"${f}" VARCHAR`).join(", ");
-  await conn.query(`CREATE TABLE IF NOT EXISTS resources (${scalarCols})`);
+  // Add GEOMETRY column for DuckDB Spatial
+  // Note: We use 'geom' as the column name.
+  await conn.query(`CREATE TABLE IF NOT EXISTS resources (${scalarCols}, geom GEOMETRY)`);
+
+  // Ensure geom column exists (migration)
+  try { await conn.query(`ALTER TABLE resources ADD COLUMN geom GEOMETRY`); } catch { }
 
   // resources_mv (multivalue)
   await conn.query(`CREATE TABLE IF NOT EXISTS resources_mv (id VARCHAR, field VARCHAR, val VARCHAR)`);
+
+  // Backfill GEOMETRY from dcat_bbox if missing
+  // This ensures existing data is indexed without re-import
+  try {
+    const needsBackfill = await conn.query("SELECT count(*) as c FROM resources WHERE geom IS NULL AND dcat_bbox LIKE 'ENVELOPE(%'");
+    if (Number(needsBackfill.toArray()[0].c) > 0) {
+      console.log("Backfilling spatial index...");
+      await conn.query(`
+          UPDATE resources
+          SET geom = ST_MakeEnvelope(
+            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[1] AS DOUBLE),
+            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[4] AS DOUBLE),
+            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[2] AS DOUBLE),
+            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[3] AS DOUBLE)
+          )
+          WHERE geom IS NULL AND dcat_bbox LIKE 'ENVELOPE(%'
+        `);
+      console.log("Spatial backfill complete.");
+    }
+  } catch (e) {
+    console.warn("Spatial backfill failed", e);
+  }
 
   // distributions
   await conn.query(`CREATE TABLE IF NOT EXISTS distributions (resource_id VARCHAR, relation_key VARCHAR, url VARCHAR)`);
@@ -774,6 +801,26 @@ export async function importCsv(file: File): Promise<{ success: boolean, message
 
       const postCount = await conn.query("SELECT count(*) as c FROM resources");
       console.log(`Rows in resources after insert: ${postCount.toArray()[0].c}`);
+
+      // Post-insert: Populate GEOMETRY column from dcat_bbox (ENVELOPE format)
+      // dcat_bbox format: ENVELOPE(minX, maxX, maxY, minY) -> (w, e, n, s)
+      // ST_MakeEnvelope(minX, minY, maxX, maxY) -> (w, s, e, n)
+      try {
+        await conn.query(`
+          UPDATE resources
+          SET geom = ST_MakeEnvelope(
+            CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[1] AS DOUBLE), -- w (minX)
+            CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[4] AS DOUBLE), -- s (minY)
+            CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[2] AS DOUBLE), -- e (maxX)
+            CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[3] AS DOUBLE)  -- n (maxY)
+          )
+          WHERE dcat_bbox LIKE 'ENVELOPE(%'
+          AND id IN (SELECT "${idSource}" FROM ${tempTable})
+        `);
+      } catch (e) {
+        console.warn("Failed to populate geom from dcat_bbox", e);
+      }
+
     } else {
       console.warn("No scalar columns to insert!");
     }
@@ -975,6 +1022,24 @@ export async function upsertResource(resource: Resource, distributions: Distribu
   if (scalarCols.length > 0) {
     const query = `INSERT INTO resources (${scalarCols.join(",")}) VALUES (${scalarVals.join(",")})`;
     await conn.query(query);
+
+    // Update geometry if bbox present
+    if (resource.dcat_bbox && resource.dcat_bbox.startsWith("ENVELOPE(")) {
+      try {
+        await conn.query(`
+          UPDATE resources
+          SET geom = ST_MakeEnvelope(
+            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[1] AS DOUBLE),
+            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[4] AS DOUBLE),
+            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[2] AS DOUBLE),
+            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[3] AS DOUBLE)
+          )
+          WHERE id = '${safeId}'
+        `);
+      } catch (e) {
+        console.warn("Failed to update geom in upsert", e);
+      }
+    }
   }
 
   // Insert MVs
@@ -1201,19 +1266,10 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
   if (req.bbox) {
     useGlobal = true;
     const { minX, minY, maxX, maxY } = req.bbox;
-    // BBox logic: overlap? or within? usually overlap.
-    // Overlap: !(max < bbox.min || min > bbox.max)
-    // Here we assume resources have bbox columns? Or parsing dcat_bbox?
-    // Current model has dcat_bbox (string). 
-    // We assume user has appropriate columns or we rely on pre-calculated columns.
-    // If columns don't exist, this throws. 
-    // Assuming standard GeoBlacklight columns for efficiency: 
-    // locn_geometry or explicit bbox_west, bbox_east...
-    // Let's assume user has these or we skip.
-    // For now, let's assume no BBox columns unless schema has changed.
-    // Actually, I didn't add bbox columns to schema!
-    // I should check `ensureSchema`. If not there, skipping BBox for now to prevent crash.
-    // globalClauses.push(`...`);
+    // Use ST_Intersects with geom column
+    // req.bbox is minX, minY, maxX, maxY (West, South, East, North)
+    // ST_MakeEnvelope takes (minX, minY, maxX, maxY) -> (w, s, e, n)
+    globalClauses.push(`ST_Intersects(geom, ST_MakeEnvelope(${minX}, ${minY}, ${maxX}, ${maxY}))`);
   }
 
   const globalHitsTable = `global_hits_${Math.random().toString(36).substring(7)}`;
@@ -1234,17 +1290,33 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
     const baseWhere = compileMainWhere(null);
 
     // Sort Logic
+    // Sort Logic
     let orderBy = `resources."dct_title_s" ASC`; // Default (Relevance fallback)
 
+    // Spatial Relevance (IoU) calculation if BBox is present
+    let spatialScore = "";
+    if (req.bbox) {
+      const { minX, minY, maxX, maxY } = req.bbox;
+      const bboxEnv = `ST_MakeEnvelope(${minX}, ${minY}, ${maxX}, ${maxY})`;
+      // IoU = Area(Intersection) / Area(Union)
+      // Union Area = Area(A) + Area(B) - Area(Intersection)
+      // geom might be null (though filtered out by WHERE usually), handle safely.
+      spatialScore = `
+         (ST_Area(ST_Intersection(resources.geom, ${bboxEnv})) / 
+         (ST_Area(resources.geom) + ST_Area(${bboxEnv}) - ST_Area(ST_Intersection(resources.geom, ${bboxEnv}))))
+       `;
+    }
+
     if (sort.field === 'gbl_indexYear_im') {
-      // Use TRY_CAST to safely handle non-numeric values (e.g. empty strings)
-      // NULLS LAST puts missing years at the end
-      // Secondary sort by Title for stability
       const dir = sort.dir.toUpperCase();
-      // TRY_CAST returns NULL if conversion fails, so safe against empty strings
       orderBy = `TRY_CAST(resources."gbl_indexYear_im" AS INTEGER) ${dir} NULLS LAST, resources."dct_title_s" ASC`;
     } else if (sort.field === 'dct_title_s') {
-      orderBy = `resources."dct_title_s" ${sort.dir.toUpperCase()}`;
+      // If BBox is present, "Relevance" (Title) becomes "Spatial Relevance" (IoU)
+      if (spatialScore) {
+        orderBy = `${spatialScore} DESC, resources."dct_title_s" ASC`;
+      } else {
+        orderBy = `resources."dct_title_s" ${sort.dir.toUpperCase()}`;
+      }
     } else {
       // Generic
       const safeSortCol = sort.field.replace(/[^a-zA-Z0-9_]/g, "");
@@ -1529,7 +1601,7 @@ export async function suggest(text: string, limit: number = 10): Promise<Suggest
 
   // 5. Spatial (MV)
   queries.push(`
-        SELECT match, 'Place' as type, 1 as priority
+        SELECT match, 'Place' as type, 3 as priority
         FROM (SELECT DISTINCT val as match FROM resources_mv WHERE field='dct_spatial_sm' AND lower(val) LIKE '%${safeText}%' LIMIT ${limit})
     `);
 

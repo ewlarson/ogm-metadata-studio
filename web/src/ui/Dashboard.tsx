@@ -8,6 +8,7 @@ import { useThumbnailQueue } from "../hooks/useThumbnailQueue";
 import { useStaticMapQueue } from "../hooks/useStaticMapQueue";
 import { AutosuggestInput } from "./AutosuggestInput";
 import { ActiveFilterBar } from "./ActiveFilterBar";
+import { MapFacet } from "./MapFacet";
 
 interface DashboardProps {
     project: ProjectConfig | null;
@@ -49,16 +50,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
         page: number;
         facets: Record<string, string[]>;
         sort: string;
+        bbox: string | undefined; // "minX,minY,maxX,maxY"
     }
 
     const [state, setState] = useUrlState<DashboardState>(
-        { q: "", page: 1, facets: {}, sort: "relevance" },
+        { q: "", page: 1, facets: {}, sort: "relevance", bbox: undefined },
         {
             toUrl: (s) => {
                 const params = new URLSearchParams();
                 if (s.q) params.set("q", s.q);
                 if (s.page > 1) params.set("page", String(s.page));
                 if (s.sort && s.sort !== "relevance") params.set("sort", s.sort);
+                if (s.bbox) params.set("bbox", s.bbox);
                 for (const [key, vals] of Object.entries(s.facets)) {
                     for (const v of vals) {
                         params.append(`f.${key}`, v);
@@ -70,6 +73,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                 const q = params.get("q") || "";
                 const page = Number(params.get("page")) || 1;
                 const sort = params.get("sort") || "relevance";
+                const bbox = params.get("bbox") || undefined;
                 const facets: Record<string, string[]> = {};
                 for (const [key, val] of params.entries()) {
                     if (key.startsWith("f.")) {
@@ -78,12 +82,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                         facets[field].push(val);
                     }
                 }
-                return { q, page, facets, sort };
+                return { q, page, facets, sort, bbox };
             },
             cleanup: (params) => {
                 params.delete("q");
                 params.delete("page");
                 params.delete("sort");
+                params.delete("bbox");
                 const keysToDelete: string[] = [];
                 for (const key of params.keys()) {
                     if (key.startsWith("f.")) {
@@ -139,12 +144,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                 sortObj = { field: "dct_title_s", dir: "asc" };
             }
 
+            let bbox = undefined;
+            if (state.bbox) {
+                const parts = state.bbox.split(",").map(Number);
+                if (parts.length === 4 && parts.every(n => !isNaN(n))) {
+                    bbox = { minX: parts[0], minY: parts[1], maxX: parts[2], maxY: parts[3] };
+                }
+            }
+
             const req: FacetedSearchRequest = {
                 q: q,
                 filters,
                 facets: FACETS.map(f => ({ field: f.field, limit: f.limit })),
                 page: { size: pageSize, from: (page - 1) * pageSize },
-                sort: [sortObj]
+                sort: [sortObj],
+                bbox
             };
 
             const res = await facetedSearch(req);
@@ -156,7 +170,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
         } finally {
             setLoading(false);
         }
-    }, [q, selectedFacets, page, state.sort]);
+    }, [q, selectedFacets, page, state.sort, state.bbox]);
 
     useEffect(() => {
         fetchData();
@@ -230,10 +244,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
 
     const totalPages = Math.ceil(total / pageSize);
 
+    const currentBBox = state.bbox ? (() => {
+        const p = state.bbox.split(",").map(Number);
+        if (p.length === 4 && p.every(n => !isNaN(n))) return { minX: p[0], minY: p[1], maxX: p[2], maxY: p[3] };
+        return undefined;
+    })() : undefined;
+
     return (
         <div className="flex bg-gray-50 dark:bg-slate-900 h-full transition-colors duration-200">
             {/* Sidebar: Facets */}
-            <div className="hidden md:block w-64 flex-shrink-0 border-r border-gray-200 dark:border-slate-800 p-4 overflow-y-auto bg-white dark:bg-transparent">
+            <div className="hidden md:block w-96 flex-shrink-0 border-r border-gray-200 dark:border-slate-800 p-4 overflow-y-auto bg-white dark:bg-transparent">
+                <MapFacet
+                    bbox={currentBBox}
+                    onChange={(b) => setState(prev => ({
+                        ...prev,
+                        bbox: b ? `${b.minX},${b.minY},${b.maxX},${b.maxY}` : undefined,
+                        page: 1
+                    }))}
+                />
                 <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-4 uppercase tracking-wider">Refine Results</h3>
                 <div className="space-y-6">
                     {FACETS.map(f => {
@@ -247,16 +275,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                                         const isChecked = selectedFacets[f.field]?.includes(item.value);
                                         return (
                                             <li key={item.value}>
-                                                <label className="flex items-center text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 cursor-pointer">
-                                                    <input
-                                                        type="checkbox"
-                                                        className="mr-2 rounded border-gray-300 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-indigo-600 focus:ring-0 focus:ring-offset-0"
-                                                        checked={isChecked}
-                                                        onChange={() => toggleFacet(f.field, item.value)}
-                                                    />
+                                                <div
+                                                    onClick={() => toggleFacet(f.field, item.value)}
+                                                    className={`flex items-center text-sm cursor-pointer py-0.5 ${isChecked ? "font-bold text-indigo-600 dark:text-indigo-400" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"}`}
+                                                >
                                                     <span className="flex-1 truncate" title={item.value}>{item.value || "<Empty>"}</span>
                                                     <span className="ml-2 text-xs text-slate-400 dark:text-slate-600 font-mono">{item.count}</span>
-                                                </label>
+                                                </div>
                                             </li>
                                         );
                                     })}
@@ -270,7 +295,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
             {/* Main: Results */}
             <div className="flex-1 flex flex-col min-w-0">
                 {/* Top Bar */}
-                <div className="border-b border-gray-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 p-4 flex flex-col gap-4 backdrop-blur-sm">
+                <div className="z-10 relative border-b border-gray-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 p-4 flex flex-col gap-4 backdrop-blur-sm">
                     {/* Search Input Row */}
                     <div className="flex items-center justify-between gap-4">
                         <div className="flex-1 max-w-2xl relative">
@@ -302,7 +327,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                                 <div className="w-px bg-gray-300 dark:bg-slate-700 h-4 mx-0.5"></div>
                                 <button onClick={() => handleExport('csv')} disabled={isExporting || total === 0} className="px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm hover:shadow">CSV</button>
                             </div>
-                            <button onClick={onCreate} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 shadow-sm">Create New</button>
                         </div>
                     </div>
 
