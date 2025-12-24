@@ -1,14 +1,19 @@
-
 import React, { useEffect, useState, useCallback } from "react";
 import { Resource } from "../aardvark/model";
-import { FacetedSearchRequest, FacetedSearchResponse, facetedSearch, exportFilteredResults, getDistributionsForResource } from "../duckdb/duckdbClient";
+import {
+    FacetedSearchRequest, facetedSearch, exportFilteredResults,
+    SuggestResult
+} from "../duckdb/duckdbClient";
 import { ProjectConfig } from "../github/client";
 import { useUrlState } from "../hooks/useUrlState";
 import { useThumbnailQueue } from "../hooks/useThumbnailQueue";
 import { useStaticMapQueue } from "../hooks/useStaticMapQueue";
+import { ResourceList } from "./ResourceList";
 import { AutosuggestInput } from "./AutosuggestInput";
 import { ActiveFilterBar } from "./ActiveFilterBar";
 import { MapFacet } from "./MapFacet";
+import { TimelineFacet } from "./TimelineFacet";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 interface DashboardProps {
     project: ProjectConfig | null;
@@ -17,12 +22,16 @@ interface DashboardProps {
 }
 
 const FACETS = [
-    { field: "schema_provider_s", label: "Provider" },
-    { field: "gbl_resourceClass_sm", label: "Resource Class" },
-    { field: "dct_subject_sm", label: "Subject", limit: 30 },
-    { field: "gbl_indexYear_im", label: "Year" },
-    { field: "dct_format_s", label: "Format" },
-    { field: "dct_accessRights_s", label: "Access Rights" },
+    { field: "gbl_resourceClass_sm", label: "Resource Class", limit: 5 },
+    { field: "gbl_resourceType_sm", label: "Resource Type", limit: 5 },
+    { field: "dct_spatial_sm", label: "Place", limit: 5 },
+    { field: "dct_subject_sm", label: "Subject", limit: 5 },
+    { field: "dcat_theme_sm", label: "Theme", limit: 5 },
+    { field: "gbl_indexYear_im", label: "Year", limit: 10 },
+    { field: "dct_language_sm", label: "Language", limit: 5 },
+    { field: "dct_publisher_sm", label: "Publisher", limit: 5 },
+    { field: "dct_creator_sm", label: "Creator", limit: 5 },
+    { field: "dct_format_s", label: "Format", limit: 5 },
 ];
 
 export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate }) => {
@@ -51,10 +60,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
         facets: Record<string, string[]>;
         sort: string;
         bbox: string | undefined; // "minX,minY,maxX,maxY"
+        yearRange: string | undefined; // "min,max"
     }
 
     const [state, setState] = useUrlState<DashboardState>(
-        { q: "", page: 1, facets: {}, sort: "relevance", bbox: undefined },
+        { q: "", page: 1, facets: {}, sort: "relevance", bbox: undefined, yearRange: undefined },
         {
             toUrl: (s) => {
                 const params = new URLSearchParams();
@@ -62,9 +72,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                 if (s.page > 1) params.set("page", String(s.page));
                 if (s.sort && s.sort !== "relevance") params.set("sort", s.sort);
                 if (s.bbox) params.set("bbox", s.bbox);
+                if (s.yearRange) params.set("yearRange", s.yearRange);
                 for (const [key, vals] of Object.entries(s.facets)) {
                     for (const v of vals) {
-                        params.append(`f.${key}`, v);
+                        params.append(`f.${key} `, v);
                     }
                 }
                 return params;
@@ -74,6 +85,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                 const page = Number(params.get("page")) || 1;
                 const sort = params.get("sort") || "relevance";
                 const bbox = params.get("bbox") || undefined;
+                const yearRange = params.get("yearRange") || undefined;
                 const facets: Record<string, string[]> = {};
                 for (const [key, val] of params.entries()) {
                     if (key.startsWith("f.")) {
@@ -82,13 +94,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                         facets[field].push(val);
                     }
                 }
-                return { q, page, facets, sort, bbox };
+                return { q, page, facets, sort, bbox, yearRange };
             },
             cleanup: (params) => {
                 params.delete("q");
                 params.delete("page");
                 params.delete("sort");
                 params.delete("bbox");
+                params.delete("yearRange");
                 const keysToDelete: string[] = [];
                 for (const key of params.keys()) {
                     if (key.startsWith("f.")) {
@@ -134,6 +147,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                 }
             }
 
+            // Add Year Range Filter
+            if (state.yearRange) {
+                const parts = state.yearRange.split(",").map(Number);
+                if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                    filters['gbl_indexYear_im'] = { gte: parts[0], lte: parts[1] };
+                }
+            }
+
             let sortObj = { field: "dct_title_s", dir: "asc" } as any;
             if (state.sort === "year_desc") sortObj = { field: "gbl_indexYear_im", dir: "desc" };
             else if (state.sort === "year_asc") sortObj = { field: "gbl_indexYear_im", dir: "asc" };
@@ -170,7 +191,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
         } finally {
             setLoading(false);
         }
-    }, [q, selectedFacets, page, state.sort, state.bbox]);
+    }, [q, selectedFacets, page, state.sort, state.bbox, state.yearRange]);
 
     useEffect(() => {
         fetchData();
@@ -216,12 +237,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                     filters[field] = { any: values };
                 }
             }
+            if (currentYearRange) {
+                filters['gbl_indexYear_im'] = { gte: currentYearRange[0], lte: currentYearRange[1] };
+            }
             const req: FacetedSearchRequest = {
                 q: q,
                 filters,
                 facets: [],
                 page: { size: 1000, from: 0 },
-                sort: []
+                sort: [],
+                bbox: currentBBox // Reuse the parsed BBox
             };
             const blob = await exportFilteredResults(req, format);
             if (!blob) throw new Error("Export yielded no data");
@@ -250,21 +275,75 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
         return undefined;
     })() : undefined;
 
+    const currentYearRange = state.yearRange ? (() => {
+        const p = state.yearRange.split(",").map(Number);
+        if (p.length === 2 && !isNaN(p[0]) && !isNaN(p[1])) return [p[0], p[1]] as [number, number];
+        return undefined;
+    })() : undefined;
+
+    const handleAutosuggest = (val: string, suggestion?: SuggestResult) => {
+        if (suggestion) {
+            let field = "";
+            switch (suggestion.type) {
+                case 'Place': field = 'dct_spatial_sm'; break;
+                case 'Subject': field = 'dct_subject_sm'; break;
+                case 'Theme': field = 'dcat_theme_sm'; break;
+                case 'Publisher': field = 'dct_publisher_sm'; break;
+                case 'Creator': field = 'dct_creator_sm'; break;
+                // Title and Keyword remain as text search (q)
+            }
+
+            if (field) {
+                // Apply Facet Filter and CLEAR any existing query text to avoid double filtering
+                setState(prev => {
+                    const currentFacets = prev.facets[field] || [];
+                    if (!currentFacets.includes(suggestion.text)) {
+                        return {
+                            ...prev,
+                            facets: { ...prev.facets, [field]: [...currentFacets, suggestion.text] },
+                            q: "", // Clear text to rely on strict facet
+                            page: 1
+                        };
+                    }
+                    return { ...prev, q: "", page: 1 }; // Even if already selected, clear text
+                });
+                return;
+            }
+        }
+
+        // Default: Text Search
+        setState(prev => ({ ...prev, q: val, page: 1 }));
+    };
+
     return (
         <div className="flex bg-gray-50 dark:bg-slate-900 h-full transition-colors duration-200">
             {/* Sidebar: Facets */}
             <div className="hidden md:block w-96 flex-shrink-0 border-r border-gray-200 dark:border-slate-800 p-4 overflow-y-auto bg-white dark:bg-transparent">
-                <MapFacet
-                    bbox={currentBBox}
-                    onChange={(b) => setState(prev => ({
-                        ...prev,
-                        bbox: b ? `${b.minX},${b.minY},${b.maxX},${b.maxY}` : undefined,
-                        page: 1
-                    }))}
-                />
                 <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-4 uppercase tracking-wider">Refine Results</h3>
+                <ErrorBoundary>
+                    <MapFacet
+                        bbox={currentBBox}
+                        onChange={(b) => setState(prev => ({
+                            ...prev,
+                            bbox: b ? `${b.minX},${b.minY},${b.maxX},${b.maxY}` : undefined,
+                            page: 1
+                        }))}
+                    />
+                </ErrorBoundary>
+                <ErrorBoundary>
+                    <TimelineFacet
+                        data={facetsData['gbl_indexYear_im'] || []}
+                        range={currentYearRange}
+                        onChange={(r) => setState(prev => ({
+                            ...prev,
+                            yearRange: r ? `${r[0]},${r[1]}` : undefined,
+                            page: 1
+                        }))}
+                    />
+                </ErrorBoundary>
+
                 <div className="space-y-6">
-                    {FACETS.map(f => {
+                    {FACETS.filter(f => f.field !== 'gbl_indexYear_im').map(f => {
                         const data = facetsData[f.field] || [];
                         if (data.length === 0 && (!selectedFacets[f.field] || selectedFacets[f.field].length === 0)) return null;
                         return (
@@ -302,7 +381,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                             <AutosuggestInput
                                 value={inputValue}
                                 onChange={setInputValue}
-                                onSearch={(val) => setState(prev => ({ ...prev, q: val, page: 1 }))}
+                                onSearch={handleAutosuggest}
                                 placeholder="Search by keyword, subject, theme..."
                             />
                         </div>
@@ -332,12 +411,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
 
                     {/* Active Filters */}
                     <ActiveFilterBar
-                        query={q}
+                        query={state.q}
                         facets={selectedFacets}
-                        fieldLabels={FACETS.reduce((acc, f) => ({ ...acc, [f.field]: f.label }), {} as Record<string, string>)}
-                        onRemoveQuery={removeQuery}
-                        onRemoveFacet={removeFacet}
-                        onClearAll={clearAll}
+                        yearRange={state.yearRange}
+                        onRemoveQuery={() => setState(prev => ({ ...prev, q: '', page: 1 }))}
+                        onRemoveFacet={(field, value) => setState(prev => {
+                            const existing = prev.facets[field] || [];
+                            const next = existing.filter(v => v !== value);
+                            const newFacets = { ...prev.facets };
+                            if (next.length > 0) newFacets[field] = next;
+                            else delete newFacets[field];
+                            return { ...prev, facets: newFacets, page: 1 };
+                        })}
+                        onRemoveYearRange={() => setState(prev => ({ ...prev, yearRange: undefined, page: 1 }))}
+                        onClearAll={() => setState(prev => ({ ...prev, q: '', facets: {}, yearRange: undefined, page: 1 }))}
                     />
                 </div>
 
@@ -408,7 +495,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                                                 </div>
                                             )}
                                             <div className="absolute top-1 right-1">
-                                                <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium shadow-sm backdrop-blur-md bg-white/80 dark:bg-slate-900/80 ${r.dct_accessRights_s === "Public" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"} `}>
+                                                <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium shadow-sm backdrop-blur-md bg-white/80 dark:bg-slate-900/80 ${r.dct_accessRights_s === "Public" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
                                                     {r.dct_accessRights_s}
                                                 </span>
                                             </div>

@@ -5,7 +5,7 @@ import { suggest, SuggestResult } from "../duckdb/duckdbClient";
 interface AutosuggestInputProps {
     value: string;
     onChange: (val: string) => void;
-    onSearch: (val: string) => void;
+    onSearch: (val: string, suggestion?: SuggestResult) => void;
     placeholder?: string;
     className?: string;
 }
@@ -71,7 +71,7 @@ export const AutosuggestInput: React.FC<AutosuggestInputProps> = ({
 
     const selectSuggestion = (s: SuggestResult) => {
         onChange(s.text);
-        onSearch(s.text);
+        onSearch(s.text, s);
         setIsOpen(false);
         setFocusedIndex(-1);
     };

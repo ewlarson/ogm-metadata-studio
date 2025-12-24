@@ -384,6 +384,11 @@ export function compileFacetedWhere(req: FacetedSearchRequest, omitField: string
     clauses.push(`id IN (SELECT id FROM search_index WHERE content ILIKE '%${k}%')`);
   }
 
+  if (emitGlobal && req.bbox) {
+    const { minX, minY, maxX, maxY } = req.bbox;
+    clauses.push(`ST_Intersects(geom, ST_MakeEnvelope(${minX}, ${minY}, ${maxX}, ${maxY}))`);
+  }
+
   if (req.filters) {
     for (const [field, condition] of Object.entries(req.filters)) {
       if (field === omitField) continue;
@@ -1377,6 +1382,12 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
         // We need to JOIN global_hits if useGlobal is true
 
         if (SCALAR_FIELDS.includes(f.field)) {
+
+          // Special handling for Year Timeline
+          const isYear = f.field === 'gbl_indexYear_im';
+          const facetLimit = isYear ? 5000 : limit;
+          const orderBy = isYear ? 'val ASC' : 'c DESC, val ASC';
+
           if (useGlobal) {
             fSql = `
                    SELECT resources."${f.field}" as val, count(*) as c 
@@ -1385,8 +1396,8 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
                    WHERE resources."${f.field}" IS NOT NULL AND resources."${f.field}" != ''
                    AND ${fWhere}
                    GROUP BY resources."${f.field}"
-                   ORDER BY c DESC, val ASC
-                   LIMIT ${limit}
+                   ORDER BY ${orderBy}
+                   LIMIT ${facetLimit}
                  `;
           } else {
             fSql = `
@@ -1395,27 +1406,21 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
                    WHERE "${f.field}" IS NOT NULL AND "${f.field}" != ''
                    AND ${fWhere}
                    GROUP BY "${f.field}"
-                   ORDER BY c DESC, val ASC
-                   LIMIT ${limit}
+                   ORDER BY ${orderBy}
+                   LIMIT ${facetLimit}
                  `;
           }
         } else {
           // MV Field
+
+          // Special handling for Year Timeline: High limit, Sort by Year ASC
+          const isYear = f.field === 'gbl_indexYear_im';
+          const facetLimit = isYear ? 5000 : limit;
+          const orderBy = isYear ? 'm.val ASC' : 'c DESC, m.val ASC';
+
           if (useGlobal) {
-            fSql = `
-                    SELECT m.val, count(DISTINCT m.id) as c
-                    FROM resources_mv m
-                    JOIN global_hits gh ON m.id = gh.id
-                    JOIN (SELECT id FROM resources r WHERE ${fWhere}) filtered ON filtered.id = m.id
-                    WHERE m.field = '${f.field}'
-                    GROUP BY m.val
-                    ORDER BY c DESC, m.val ASC
-                    LIMIT ${limit}
-                 `;
-            // Note: filtered subquery might need to join global_hits too if fWhere depends on scalar columns? 
-            // Actually fWhere is just facets. 
-            // Optimization: "filtered" CTE is redundant if we just join resources?
-            // Let's keep it simple:
+            // ... (optimized global query)
+            // Simplified for brevity in replacement, but retaining logic
             fSql = `
                     SELECT m.val, count(DISTINCT m.id) as c
                     FROM resources_mv m
@@ -1424,8 +1429,8 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
                     WHERE m.field = '${f.field}'
                     AND ${fWhere}
                     GROUP BY m.val
-                    ORDER BY c DESC, m.val ASC
-                    LIMIT ${limit}
+                    ORDER BY ${orderBy}
+                    LIMIT ${facetLimit}
                  `;
           } else {
             fSql = `
@@ -1435,8 +1440,8 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
                    JOIN filtered f ON f.id = m.id
                    WHERE m.field = '${f.field}'
                    GROUP BY m.val
-                   ORDER BY c DESC, m.val ASC
-                   LIMIT ${limit}
+                   ORDER BY ${orderBy}
+                   LIMIT ${facetLimit}
                 `;
           }
         }

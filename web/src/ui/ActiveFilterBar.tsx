@@ -1,27 +1,33 @@
 
 import React from "react";
 
+
 interface ActiveFilterBarProps {
     query: string;
     facets: Record<string, string[]>;
+    yearRange?: string; // "min,max"
     fieldLabels?: Record<string, string>;
     onRemoveQuery: () => void;
     onRemoveFacet: (field: string, value: string) => void;
+    onRemoveYearRange?: () => void;
     onClearAll: () => void;
 }
 
 export const ActiveFilterBar: React.FC<ActiveFilterBarProps> = ({
     query,
     facets,
+    yearRange,
     fieldLabels,
     onRemoveQuery,
     onRemoveFacet,
+    onRemoveYearRange,
     onClearAll,
 }) => {
     const hasQuery = query && query.trim().length > 0;
     const hasFacets = Object.values(facets).some((v) => v.length > 0);
+    const hasYearRange = !!yearRange;
 
-    if (!hasQuery && !hasFacets) return null;
+    if (!hasQuery && !hasFacets && !hasYearRange) return null;
 
     const getLabel = (field: string) => {
         if (fieldLabels && fieldLabels[field]) return fieldLabels[field];
@@ -49,6 +55,23 @@ export const ActiveFilterBar: React.FC<ActiveFilterBarProps> = ({
                     >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
+                </span>
+            )}
+
+            {/* Year Range Chip */}
+            {hasYearRange && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300 border border-emerald-100 dark:border-emerald-800">
+                    <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    Year: {yearRange?.replace(',', ' - ')}
+                    {onRemoveYearRange && (
+                        <button
+                            onClick={onRemoveYearRange}
+                            className="ml-1 rounded-full hover:bg-emerald-200 dark:hover:bg-emerald-800 p-0.5 text-emerald-600 dark:text-emerald-400 focus:outline-none"
+                            title="Remove year filter"
+                        >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    )}
                 </span>
             )}
 
