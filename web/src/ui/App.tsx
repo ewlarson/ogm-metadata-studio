@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Resource, resourceToJson, REPEATABLE_STRING_FIELDS, Distribution } from "../aardvark/model";
 // GithubClient imports removed
-import { getDuckDbContext, queryResources, queryResourceById, exportDbBlob, saveDb, upsertResource, queryDistributionsForResource, exportAardvarkJsonZip } from "../duckdb/duckdbClient";
+import { getDuckDbContext, queryResources, queryResourceById, saveDb, upsertResource, queryDistributionsForResource } from "../duckdb/duckdbClient";
 import { TabularEditor } from "./TabularEditor";
 import { TagInput } from "./TagInput";
 import { ResourceList } from "./ResourceList";
@@ -51,8 +51,7 @@ export const App: React.FC = () => {
   const [editingDistributions, setEditingDistributions] = useState<Distribution[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [isExportingDuckDb, setIsExportingDuckDb] = useState(false);
-  const [isExportingJson, setIsExportingJson] = useState(false);
+
   const [status, setStatus] = useState<string>("Local Mode");
 
   // Refresh resource count from DuckDB
@@ -94,51 +93,7 @@ export const App: React.FC = () => {
   }, [view, selectedId, editing, setUrlState]);
 
 
-  async function handleExportDuckDb() {
-    setIsExportingDuckDb(true);
-    try {
-      const blob = await exportDbBlob();
-      if (!blob) throw new Error("Failed to export DB blob");
 
-      // Download blob as file
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "records.duckdb";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-    } catch (err) {
-      console.error("Failed to export DuckDB", err);
-      alert(`Failed to export DuckDB: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setIsExportingDuckDb(false);
-    }
-  }
-
-  async function handleExportJsonZip() {
-    setIsExportingJson(true);
-    try {
-      const blob = await exportAardvarkJsonZip();
-      if (!blob) throw new Error("Failed to export JSON Zip");
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "aardvark-json-export.zip";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Failed to export JSON Zip", err);
-      alert(`Failed to export: ${err}`);
-    } finally {
-      setIsExportingJson(false);
-    }
-  }
 
   async function handleSave(resource: Resource, distributions: Distribution[]) {
     setIsSaving(true);
@@ -240,18 +195,8 @@ export const App: React.FC = () => {
         </button>
         <div className="text-right flex flex-col items-end gap-1">
           <p className="text-[11px] text-slate-500 dark:text-slate-400">{status}</p>
-          <div className="flex gap-2 mt-1">
-            <ThemeToggle />
-            <div className="w-[1px] h-6 bg-gray-300 dark:bg-slate-800 mx-1"></div>
-            <button
-              type="button"
-              onClick={() => setUrlState({ view: "dashboard" })}
-              className={`rounded-md border px-2 py-1 text-[10px] transition-colors ${view === "dashboard"
-                ? "bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white font-medium"
-                : "border-transparent text-slate-600 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-800/70"}`}
-            >
-              Dashboard
-            </button>
+          <div className="flex gap-2 mt-1 items-center">
+
             <button
               type="button"
               onClick={() => setUrlState({ view: "admin" })}
@@ -280,20 +225,8 @@ export const App: React.FC = () => {
             >
               Import / Export
             </button>
-            <button
-              type="button"
-              onClick={handleExportJsonZip}
-              className="rounded-md border border-emerald-200 dark:border-emerald-900/50 px-2 py-1 text-[10px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/10 hover:bg-emerald-100 dark:hover:bg-emerald-900/20"
-            >
-              {isExportingJson ? "Zipping..." : "Export OGM JSONs"}
-            </button>
-            <button
-              type="button"
-              onClick={handleExportDuckDb}
-              className="rounded-md border border-slate-200 dark:border-slate-700 px-2 py-1 text-[10px] text-slate-600 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-800/70"
-            >
-              Download DB
-            </button>
+            <div className="w-[1px] h-6 bg-gray-300 dark:bg-slate-800 mx-1"></div>
+            <ThemeToggle />
           </div>
         </div>
       </header>
