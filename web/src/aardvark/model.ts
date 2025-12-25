@@ -73,6 +73,7 @@ export interface Distribution {
   resource_id: string;
   relation_key: string;
   url: string;
+  label?: string;
 }
 
 export const REPEATABLE_STRING_FIELDS: string[] = [

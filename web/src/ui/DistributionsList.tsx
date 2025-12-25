@@ -71,14 +71,15 @@ export const DistributionsList: React.FC<DistributionsListProps> = ({ onEditReso
                                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-300">Resource ID</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-300">Resource Title</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-300">Type (Relation)</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-300">Label</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-300">URL</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200 dark:divide-slate-800 bg-white dark:bg-slate-900/50">
                             {loading ? (
-                                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-500">Loading...</td></tr>
+                                <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">Loading...</td></tr>
                             ) : distributions.length === 0 ? (
-                                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-500">No distributions found.</td></tr>
+                                <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">No distributions found.</td></tr>
                             ) : (
                                 distributions.map((d, i) => (
                                     <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
@@ -87,6 +88,7 @@ export const DistributionsList: React.FC<DistributionsListProps> = ({ onEditReso
                                         </td>
                                         <td className="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">{d.dct_title_s || "-"}</td>
                                         <td className="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">{d.relation_key}</td>
+                                        <td className="px-4 py-3 text-xs text-slate-700 dark:text-slate-300 italic">{d.label || ""}</td>
                                         <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 truncate max-w-xs" title={d.url}>
                                             <a href={d.url} target="_blank" rel="noopener noreferrer" className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline">
                                                 {d.url}

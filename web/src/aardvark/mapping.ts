@@ -116,11 +116,33 @@ export function resourceFromRow(
   }
 
   if (distributionsForResource.length > 0) {
-    const refs: Record<string, string> = {};
+    // Reconstruct dct_references_s
+    const refs: Record<string, any> = {};
+    const grouped = new Map<string, Distribution[]>();
+
+    // 1. Group by relation_key
     for (const d of distributionsForResource) {
       if (!d.relation_key || !d.url) continue;
-      refs[d.relation_key] = d.url;
+      if (!grouped.has(d.relation_key)) grouped.set(d.relation_key, []);
+      grouped.get(d.relation_key)?.push(d);
     }
+
+    // 2. Build JSON
+    for (const [key, dists] of grouped.entries()) {
+      const isComplex = dists.length > 1 || dists.some(d => !!d.label);
+
+      if (isComplex) {
+        // Array of objects
+        refs[key] = dists.map(d => ({
+          url: d.url,
+          label: d.label // undefined if missing, which JSON.stringify drops
+        }));
+      } else {
+        // Single simple URL (Backward Compatibility)
+        refs[key] = dists[0].url;
+      }
+    }
+
     data["dct_references_s"] = JSON.stringify(refs);
   }
 
@@ -167,11 +189,24 @@ export function extractDistributionsFromJson(
 export function buildDctReferencesS(
   distributions: Distribution[]
 ): string | undefined {
-  const refs: Record<string, string> = {};
+  const refs: Record<string, any> = {};
+  const grouped = new Map<string, Distribution[]>();
+
   for (const d of distributions) {
     if (!d.relation_key || !d.url) continue;
-    refs[d.relation_key] = d.url;
+    if (!grouped.has(d.relation_key)) grouped.set(d.relation_key, []);
+    grouped.get(d.relation_key)?.push(d);
   }
+
+  for (const [key, dists] of grouped.entries()) {
+    const isComplex = dists.length > 1 || dists.some(d => !!d.label);
+    if (isComplex) {
+      refs[key] = dists.map(d => ({ url: d.url, label: d.label }));
+    } else {
+      refs[key] = dists[0].url;
+    }
+  }
+
   if (Object.keys(refs).length === 0) return undefined;
   return JSON.stringify(refs, Object.keys(refs).sort(), 2);
 }

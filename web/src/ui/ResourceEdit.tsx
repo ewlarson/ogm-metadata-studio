@@ -294,7 +294,16 @@ export const ResourceEdit: React.FC<ResourceEditProps> = ({
                                                         onChange={(e) => updateDistribution(idx, "relation_key", e.target.value)}
                                                     />
                                                 </div>
-                                                <div className="flex-[3]">
+                                                <div className="flex-1">
+                                                    <label className="block text-[10px] text-slate-600 dark:text-slate-500 mb-0.5">Label (Optional)</label>
+                                                    <input
+                                                        className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white"
+                                                        placeholder="e.g. Shapefile, TIFF"
+                                                        value={dist.label || ""}
+                                                        onChange={(e) => updateDistribution(idx, "label", e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="flex-[2]">
                                                     <label className="block text-[10px] text-slate-600 dark:text-slate-500 mb-0.5">URL</label>
                                                     <input
                                                         className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded px-2 py-1 text-xs text-slate-900 dark:text-white"

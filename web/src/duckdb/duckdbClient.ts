@@ -164,7 +164,10 @@ async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
   }
 
   // distributions
-  await conn.query(`CREATE TABLE IF NOT EXISTS distributions (resource_id VARCHAR, relation_key VARCHAR, url VARCHAR)`);
+  await conn.query(`CREATE TABLE IF NOT EXISTS distributions (resource_id VARCHAR, relation_key VARCHAR, url VARCHAR, label VARCHAR)`);
+
+  // Ensure label column exists (migration)
+  try { await conn.query(`ALTER TABLE distributions ADD COLUMN label VARCHAR`); } catch { }
 
   // resources_image_service (Thumbnail Cache)
   try {
@@ -944,6 +947,7 @@ export async function queryDistributions(
       d.resource_id, 
       d.relation_key, 
       d.url, 
+      d.label,
       r.dct_title_s
   FROM distributions d
   LEFT JOIN resources r ON d.resource_id = r.id
@@ -968,6 +972,7 @@ export async function queryDistributions(
     resource_id: r.resource_id,
     relation_key: r.relation_key,
     url: r.url,
+    label: r.label,
     dct_title_s: r.dct_title_s
   }));
 
@@ -986,7 +991,8 @@ export async function queryDistributionsForResource(resourceId: string): Promise
   return res.toArray().map((r: any) => ({
     resource_id: r.resource_id,
     relation_key: r.relation_key,
-    url: r.url
+    url: r.url,
+    label: r.label
   }));
 }
 
@@ -1065,8 +1071,9 @@ export async function upsertResource(resource: Resource, distributions: Distribu
     for (const d of distributions) {
       const k = d.relation_key.replace(/'/g, "''");
       const u = d.url.replace(/'/g, "''");
+      const l = d.label ? `'${d.label.replace(/'/g, "''")}'` : 'NULL';
       // Ensure we use the resource ID from the main resource, just in case
-      await conn.query(`INSERT INTO distributions (resource_id, relation_key, url) VALUES ('${safeId}', '${k}', '${u}')`);
+      await conn.query(`INSERT INTO distributions (resource_id, relation_key, url, label) VALUES ('${safeId}', '${k}', '${u}', ${l})`);
     }
   }
 
@@ -1168,15 +1175,43 @@ export async function importJsonData(json: any, options: { skipSave?: boolean } 
     if (record.dct_references_s) {
       try {
         const refs = JSON.parse(record.dct_references_s);
-        for (const [uri, url] of Object.entries(refs)) {
+        for (const [uri, value] of Object.entries(refs)) {
           // Check if URI is a known relation type
           const relKey = uriToKey.get(uri);
           if (relKey) {
-            distributions.push({
-              resource_id: record.id,
-              relation_key: relKey,
-              url: String(url)
-            });
+
+            // Normalize to array
+            const items = Array.isArray(value) ? value : [value];
+
+            for (const item of items) {
+              let finalUrl = "";
+              let label: string | undefined = undefined;
+
+              if (typeof item === 'string') {
+                finalUrl = item;
+              } else if (typeof item === 'object' && item !== null) {
+                // unexpected object
+                if ('url' in item) {
+                  finalUrl = String((item as any).url);
+                  if ('label' in item) label = String((item as any).label);
+                } else {
+                  // Unknown structure?
+                  console.warn(`Encountered unknown object in dct_references_s for ${record.id} key ${uri}:`, item);
+                  finalUrl = JSON.stringify(item);
+                }
+              } else {
+                finalUrl = String(item);
+              }
+
+              if (finalUrl) {
+                distributions.push({
+                  resource_id: record.id,
+                  relation_key: relKey,
+                  url: finalUrl,
+                  label: label
+                });
+              }
+            }
           }
         }
       } catch (e) {
