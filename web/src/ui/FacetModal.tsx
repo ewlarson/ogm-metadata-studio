@@ -73,7 +73,15 @@ export const FacetModal: React.FC<FacetModalProps> = ({
     useEffect(() => {
         if (isOpen) {
             fetchValues();
+            // Lock body scroll
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
         }
+
+        return () => {
+            document.body.style.overflow = '';
+        };
     }, [isOpen, fetchValues]);
 
     if (!isOpen) return null;
@@ -120,7 +128,7 @@ export const FacetModal: React.FC<FacetModalProps> = ({
                             placeholder={`Search ${label}...`}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            className="w-full text-sm rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 pl-9 focus:ring-indigo-500 focus:border-indigo-500"
+                            className="w-full text-sm rounded-md border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-2.5 pl-10 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
                             autoFocus
                         />
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -152,21 +160,21 @@ export const FacetModal: React.FC<FacetModalProps> = ({
                     {loading ? (
                         <div className="flex items-center justify-center h-32 text-slate-400">Loading...</div>
                     ) : values.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="flex flex-col space-y-1">
                             {values.map(item => {
                                 const isIncluded = selectedValues.includes(item.value);
                                 const isExcluded = excludedValues.includes(item.value);
 
                                 return (
-                                    <div key={item.value} className="flex items-center justify-between p-2 rounded hover:bg-gray-50 dark:hover:bg-slate-800/50 group border border-transparent hover:border-gray-100 dark:hover:border-slate-800">
+                                    <div key={item.value} className="flex items-center justify-between px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-slate-800 group transition-colors">
                                         <div className="flex items-center gap-3 min-w-0 flex-1">
                                             <button
                                                 onClick={() => onToggle(field, item.value, 'include')}
-                                                className={`flex-1 text-left text-sm truncate ${isIncluded
-                                                        ? "font-bold text-indigo-600 dark:text-indigo-400"
-                                                        : isExcluded
-                                                            ? "text-red-500 line-through decoration-red-500 opacity-70"
-                                                            : "text-slate-700 dark:text-slate-300"
+                                                className={`flex-1 text-left text-base sm:text-sm truncate ${isIncluded
+                                                    ? "font-bold text-indigo-600 dark:text-indigo-400"
+                                                    : isExcluded
+                                                        ? "text-red-500 line-through decoration-red-500 opacity-70"
+                                                        : "text-slate-700 dark:text-slate-300"
                                                     }`}
                                                 title={item.value}
                                             >
@@ -174,8 +182,8 @@ export const FacetModal: React.FC<FacetModalProps> = ({
                                             </button>
                                         </div>
 
-                                        <div className="flex items-center gap-2 flex-shrink-0">
-                                            <span className="text-xs font-mono text-slate-400 dark:text-slate-500 bg-gray-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                                        <div className="flex items-center gap-3 flex-shrink-0">
+                                            <span className="text-xs font-mono text-slate-400 dark:text-slate-500 bg-gray-50 dark:bg-slate-800/50 px-2 py-0.5 rounded border border-gray-200 dark:border-slate-700">
                                                 {item.count}
                                             </span>
 
@@ -185,7 +193,7 @@ export const FacetModal: React.FC<FacetModalProps> = ({
                                                     e.stopPropagation();
                                                     onToggle(field, item.value, 'exclude');
                                                 }}
-                                                className={`p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-600 transition-colors ${isExcluded ? 'text-red-600' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'}`}
+                                                className={`p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-600 transition-colors ${isExcluded ? 'text-red-600' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'}`}
                                                 title="Exclude this value"
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
