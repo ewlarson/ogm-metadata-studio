@@ -1705,7 +1705,7 @@ export interface FacetValueRequest {
   yearRange?: string; // "min,max"
 
   facetQuery?: string; // Search within facet values
-  sort?: "count" | "alpha"; // Sort order
+  sort?: "count_desc" | "count_asc" | "alpha_asc" | "alpha_desc"; // Sort order
   page?: number;
   pageSize?: number;
 }
@@ -1722,7 +1722,7 @@ export async function getFacetValues(req: FacetValueRequest): Promise<FacetValue
 
   const limit = req.pageSize ?? 20;
   const offset = ((req.page ?? 1) - 1) * limit;
-  const sort = req.sort ?? "count";
+  const sort = req.sort ?? "count_desc";
   const fQuery = req.facetQuery ? req.facetQuery.replace(/'/g, "''").toLowerCase() : "";
 
   // 1. Compile Global Filters (Identical to facetedSearch)
@@ -1761,7 +1761,17 @@ export async function getFacetValues(req: FacetValueRequest): Promise<FacetValue
   // 2. Build Query
   let sql = "";
   let countSql = "";
-  let orderBy = sort === "alpha" ? "val ASC" : "c DESC, val ASC";
+  let orderBy = "c DESC, val ASC";
+
+  switch (sort) {
+    case "count_asc": orderBy = "c ASC, val ASC"; break;
+    case "alpha_asc": orderBy = "val ASC"; break;
+    case "alpha_desc": orderBy = "val DESC"; break;
+    case "count_desc":
+    default:
+      orderBy = "c DESC, val ASC";
+      break;
+  }
 
   const field = req.field;
   const isScalar = SCALAR_FIELDS.includes(field);

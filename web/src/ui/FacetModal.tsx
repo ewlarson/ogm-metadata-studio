@@ -34,7 +34,7 @@ export const FacetModal: React.FC<FacetModalProps> = ({
     const [page, setPage] = useState(1);
     const [pageSize] = useState(20);
     const [search, setSearch] = useState("");
-    const [sort, setSort] = useState<"count" | "alpha">("count");
+    const [sort, setSort] = useState<"count_desc" | "count_asc" | "alpha_asc" | "alpha_desc">("count_desc");
 
     const fetchValues = useCallback(async () => {
         setLoading(true);
@@ -100,7 +100,8 @@ export const FacetModal: React.FC<FacetModalProps> = ({
             <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-xl shadow-2xl flex flex-col max-h-[90vh] border border-gray-200 dark:border-slate-800">
 
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-800">
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-800">
                     <div>
                         <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                             Select {label}
@@ -121,37 +122,31 @@ export const FacetModal: React.FC<FacetModalProps> = ({
                 </div>
 
                 {/* Toolbar */}
-                <div className="p-4 border-b border-gray-200 dark:border-slate-800 flex gap-4 bg-gray-50 dark:bg-slate-900/50">
+                <div className="px-4 py-2 border-b border-gray-200 dark:border-slate-800 flex gap-4 bg-gray-50 dark:bg-slate-900/50">
                     <div className="flex-1 relative">
                         <input
                             type="text"
                             placeholder={`Search ${label}...`}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            className="w-full text-sm rounded-md border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-2.5 pl-10 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
+                            className="w-full text-sm rounded-md border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 py-1.5 pl-10 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm"
                             autoFocus
                         />
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                             <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
                         </svg>
                     </div>
-                    <div className="flex rounded-md shadow-sm">
-                        <button
-                            onClick={() => setSort("count")}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-l-md border ${sort === "count"
-                                ? "bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/20 dark:border-indigo-800 dark:text-indigo-300 z-10"
-                                : "bg-white border-gray-300 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700"}`}
+                    <div className="flex">
+                        <select
+                            value={sort}
+                            onChange={(e) => setSort(e.target.value as any)}
+                            className="text-xs sm:text-sm rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 focus:ring-1 focus:ring-indigo-500 py-1.5 pl-2 pr-8 shadow-sm border"
                         >
-                            Count
-                        </button>
-                        <button
-                            onClick={() => setSort("alpha")}
-                            className={`px-3 py-1.5 text-xs font-medium rounded-r-md border -ml-px ${sort === "alpha"
-                                ? "bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/20 dark:border-indigo-800 dark:text-indigo-300 z-10"
-                                : "bg-white border-gray-300 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700"}`}
-                        >
-                            A-Z
-                        </button>
+                            <option value="count_desc">Count (High to Low)</option>
+                            <option value="count_asc">Count (Low to High)</option>
+                            <option value="alpha_asc">Value (A-Z)</option>
+                            <option value="alpha_desc">Value (Z-A)</option>
+                        </select>
                     </div>
                 </div>
 
@@ -160,17 +155,17 @@ export const FacetModal: React.FC<FacetModalProps> = ({
                     {loading ? (
                         <div className="flex items-center justify-center h-32 text-slate-400">Loading...</div>
                     ) : values.length > 0 ? (
-                        <div className="flex flex-col space-y-1">
+                        <div className="flex flex-col space-y-0.5">
                             {values.map(item => {
                                 const isIncluded = selectedValues.includes(item.value);
                                 const isExcluded = excludedValues.includes(item.value);
 
                                 return (
-                                    <div key={item.value} className="flex items-center justify-between px-3 py-2 rounded hover:bg-gray-100 dark:hover:bg-slate-800 group transition-colors">
+                                    <div key={item.value} className="flex items-center justify-between px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-slate-800 group transition-colors">
                                         <div className="flex items-center gap-3 min-w-0 flex-1">
                                             <button
                                                 onClick={() => onToggle(field, item.value, 'include')}
-                                                className={`flex-1 text-left text-base sm:text-sm truncate ${isIncluded
+                                                className={`flex-1 text-left text-sm truncate ${isIncluded
                                                     ? "font-bold text-indigo-600 dark:text-indigo-400"
                                                     : isExcluded
                                                         ? "text-red-500 line-through decoration-red-500 opacity-70"
@@ -214,7 +209,7 @@ export const FacetModal: React.FC<FacetModalProps> = ({
 
                 {/* Footer / Pagination */}
                 {totalPages > 1 && (
-                    <div className="p-4 border-t border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-900/50 flex items-center justify-between">
+                    <div className="px-4 py-2 border-t border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-900/50 flex items-center justify-between">
                         <span className="text-xs text-slate-500 dark:text-slate-400">
                             Page {page} of {totalPages}
                         </span>

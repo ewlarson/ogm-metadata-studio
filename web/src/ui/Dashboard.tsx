@@ -601,7 +601,7 @@ const FacetSection: React.FC<{
                     onClick={onShowMore}
                     className="w-full text-left text-xs text-indigo-600 dark:text-indigo-400 hover:underline pl-1 py-1"
                 >
-                    More {label}...
+                    More {label.endsWith('s') ? `${label}es` : `${label}s`}...
                 </button>
             )}
         </div >
