@@ -17,6 +17,7 @@ import { ActiveFilterBar } from "./ActiveFilterBar";
 import { MapFacet } from "./MapFacet";
 import { TimelineFacet } from "./TimelineFacet";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { FacetModal } from "./FacetModal";
 
 interface DashboardProps {
     project: ProjectConfig | null;
@@ -44,6 +45,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [isExporting, setIsExporting] = useState(false);
+    const [modalState, setModalState] = useState<{ field: string; label: string } | null>(null);
 
     // Asset Queues
     const { thumbnails, register } = useThumbnailQueue();
@@ -176,7 +178,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
             const req: FacetedSearchRequest = {
                 q: q,
                 filters,
-                facets: FACETS.map(f => ({ field: f.field, limit: f.limit })),
+                // Request limit + 1 to detect "More..."
+                facets: FACETS.map(f => ({ field: f.field, limit: f.limit + 1 })),
                 page: { size: pageSize, from: (page - 1) * pageSize },
                 sort: [sortObj],
                 bbox
@@ -358,13 +361,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
 
                 <div className="space-y-4">
                     {FACETS.filter(f => f.field !== 'gbl_indexYear_im').map((f, index) => {
-                        const data = facetsData[f.field] || [];
+                        const rawData = facetsData[f.field] || [];
+                        const hasMore = rawData.length > f.limit;
+                        const data = rawData.slice(0, f.limit);
+
                         const selectedValues = selectedFacets[f.field] || [];
                         const excludedValues = selectedFacets[`-${f.field}`] || [];
 
                         // Pass down selection/data + defaultOpen logic
                         // First 5 (index 0-4) default open, rest closed.
                         // UNLESS active selection exists, then force open.
+
                         return (
                             <FacetSection
                                 key={f.field}
@@ -375,11 +382,45 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                                 excludedValues={excludedValues}
                                 onToggle={toggleFacet}
                                 defaultOpen={index < 5}
+                                onShowMore={hasMore ? () => setModalState({ field: f.field, label: f.label }) : undefined}
                             />
                         );
                     })}
                 </div>
             </div>
+
+            {/* Facet Modal */}
+            {modalState && (
+                <FacetModal
+                    field={modalState.field}
+                    label={modalState.label}
+                    isOpen={true}
+                    onClose={() => setModalState(null)}
+                    q={q}
+                    filters={(() => {
+                        const f: Record<string, any> = {};
+                        // Convert UI Facets state to DSL filters (Reuse logic from fetchData, maybe refactor later)
+                        for (const [key, values] of Object.entries(selectedFacets)) {
+                            if (values.length > 0) {
+                                if (key.startsWith("-")) {
+                                    const field = key.substring(1);
+                                    if (!f[field]) f[field] = {};
+                                    f[field].none = values;
+                                } else {
+                                    if (!f[key]) f[key] = {};
+                                    f[key].any = values;
+                                }
+                            }
+                        }
+                        return f;
+                    })()}
+                    bbox={state.bbox}
+                    yearRange={state.yearRange}
+                    selectedValues={selectedFacets[modalState.field] || []}
+                    excludedValues={selectedFacets[`-${modalState.field}`] || []}
+                    onToggle={toggleFacet}
+                />
+            )}
 
             {/* Main: Results */}
             <div className="flex-1 flex flex-col min-w-0">
@@ -517,7 +558,8 @@ const FacetSection: React.FC<{
     excludedValues: string[];
     onToggle: (type: string, value: string, mode: 'include' | 'exclude') => void;
     defaultOpen: boolean;
-}> = ({ field, label, data, selectedValues, excludedValues, onToggle, defaultOpen }) => {
+    onShowMore?: () => void;
+}> = ({ field, label, data, selectedValues, excludedValues, onToggle, defaultOpen, onShowMore }) => {
     const hasActiveSelection = selectedValues.length > 0 || excludedValues.length > 0;
     const [isOpen, setIsOpen] = useState(defaultOpen || hasActiveSelection);
 
@@ -583,6 +625,15 @@ const FacetSection: React.FC<{
                     })}
                 </ul>
             )}
-        </div>
+
+            {isOpen && onShowMore && (
+                <button
+                    onClick={onShowMore}
+                    className="w-full text-left text-xs text-indigo-600 dark:text-indigo-400 hover:underline pl-1 py-1"
+                >
+                    More {label}...
+                </button>
+            )}
+        </div >
     );
 };

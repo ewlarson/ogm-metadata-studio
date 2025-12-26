@@ -1694,3 +1694,134 @@ export async function countResources(): Promise<number> {
   }
 }
 
+
+// *** Facet Values Query (Modal) ***
+
+export interface FacetValueRequest {
+  field: string;
+  q?: string; // Global Search
+  filters?: Record<string, any>; // Global Filters
+  bbox?: { minX: number; minY: number; maxX: number; maxY: number };
+  yearRange?: string; // "min,max"
+
+  facetQuery?: string; // Search within facet values
+  sort?: "count" | "alpha"; // Sort order
+  page?: number;
+  pageSize?: number;
+}
+
+export interface FacetValueResult {
+  values: { value: string; count: number }[];
+  total: number;
+}
+
+export async function getFacetValues(req: FacetValueRequest): Promise<FacetValueResult> {
+  const ctx = await getDuckDbContext();
+  if (!ctx) return { values: [], total: 0 };
+  const { conn } = ctx;
+
+  const limit = req.pageSize ?? 20;
+  const offset = ((req.page ?? 1) - 1) * limit;
+  const sort = req.sort ?? "count";
+  const fQuery = req.facetQuery ? req.facetQuery.replace(/'/g, "''").toLowerCase() : "";
+
+  // 1. Compile Global Filters (Identical to facetedSearch)
+  // We MUST exclude the current field from the filters to allow "Or-like" selection behavior 
+  // (Standard Drill-Down: If I select 'Place: A', I still want to see 'Place: B' in the list to switch/add)
+  // BUT the user requirement "Facet values are based on search constraints" usually means:
+  // Show me available values *given* my OTHER constraints.
+  // And usually, for the *same* field, we show all values that *would* match if I unselected my current selection.
+  // So we typically OMIT the current field's filter.
+
+  // Re-construct a FacetedSearchRequest to reuse compileFacetedWhere logic
+  // We need to inject the yearRange into filters if present, similar to Dashboard.tsx logic
+  const filters = { ...req.filters };
+  if (req.yearRange) {
+    const parts = req.yearRange.split(",").map(Number);
+    if (parts.length === 2) {
+      filters['gbl_indexYear_im'] = { ...filters['gbl_indexYear_im'], gte: parts[0], lte: parts[1] };
+    }
+  }
+
+  const dummyReq: FacetedSearchRequest = {
+    q: req.q,
+    filters,
+    bbox: req.bbox
+  };
+
+  // Compile WHERE clause, OMITTING the current field
+  const whereClause = compileFacetedWhere(dummyReq, req.field, true).sql;
+  // Note: compileFacetedWhere isn't exported, need to check if I can access it or duplicate.
+  // It is defined in this file but NOT exported? I need to check line 1343.
+  // It seems `compileFacetedWhere` was implemented in `facetedSearch` task but I didn't see the definition in the previous `view_file`.
+  // Wait, I saw `compileMainWhere` calling `compileFacetedWhere` in `facetedSearch` implementation (Step 4083, Line 1343).
+  // So `compileFacetedWhere` exists in the local scope or module scope. I need to find where it is defined.
+  // It's likely above `facetedSearch` or below. I will assume it's available in module scope.
+
+  // 2. Build Query
+  let sql = "";
+  let countSql = "";
+  let orderBy = sort === "alpha" ? "val ASC" : "c DESC, val ASC";
+
+  const field = req.field;
+  const isScalar = SCALAR_FIELDS.includes(field);
+
+  // Global Hits Table Logic (Reuse if performance needed, but for unrelated single query maybe overkill? 
+  // Let's stick to direct query for now for simplicity, unless performance sucks.
+
+  if (isScalar) {
+    sql = `
+      SELECT "${field}" as val, count(*) as c 
+      FROM resources 
+      WHERE "${field}" IS NOT NULL AND "${field}" != ''
+      AND ${whereClause}
+      ${fQuery ? `AND lower("${field}") LIKE '%${fQuery}%'` : ""}
+      GROUP BY "${field}"
+      ORDER BY ${orderBy}
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    countSql = `
+      SELECT count(DISTINCT "${field}") as total
+      FROM resources
+      WHERE "${field}" IS NOT NULL AND "${field}" != ''
+      AND ${whereClause}
+      ${fQuery ? `AND lower("${field}") LIKE '%${fQuery}%'` : ""}
+    `;
+  } else {
+    // MV
+    sql = `
+      WITH filtered AS (SELECT id FROM resources WHERE ${whereClause})
+      SELECT m.val, count(DISTINCT m.id) as c
+      FROM resources_mv m
+      JOIN filtered f ON f.id = m.id
+      WHERE m.field = '${field}'
+      ${fQuery ? `AND lower(m.val) LIKE '%${fQuery}%'` : ""}
+      GROUP BY m.val
+      ORDER BY ${orderBy}
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    countSql = `
+      WITH filtered AS (SELECT id FROM resources WHERE ${whereClause})
+      SELECT count(DISTINCT m.val) as total
+      FROM resources_mv m
+      JOIN filtered f ON f.id = m.id
+      WHERE m.field = '${field}'
+      ${fQuery ? `AND lower(m.val) LIKE '%${fQuery}%'` : ""}
+    `;
+  }
+
+  try {
+    const [res, countRes] = await Promise.all([
+      conn.query(sql),
+      conn.query(countSql)
+    ]);
+
+    return {
+      values: res.toArray().map((r: any) => ({ value: String(r.val), count: Number(r.c) })),
+      total: Number(countRes.toArray()[0].total)
+    };
+  } catch (e) {
+    console.error(`getFacetValues failed for ${field}`, e);
+    return { values: [], total: 0 };
+  }
+}
