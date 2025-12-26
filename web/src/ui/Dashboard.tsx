@@ -130,32 +130,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
 
     const pageSize = 20;
 
+    const activeFilters = React.useMemo(() => {
+        const filters: Record<string, any> = {};
+        for (const [key, values] of Object.entries(selectedFacets)) {
+            if (values.length > 0) {
+                if (key.startsWith("-")) {
+                    const field = key.substring(1);
+                    if (!filters[field]) filters[field] = {};
+                    filters[field].none = values;
+                } else {
+                    if (!filters[key]) filters[key] = {};
+                    filters[key].any = values;
+                }
+            }
+        }
+        if (state.yearRange) {
+            const parts = state.yearRange.split(",").map(Number);
+            if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                filters['gbl_indexYear_im'] = { ...filters['gbl_indexYear_im'], gte: parts[0], lte: parts[1] };
+            }
+        }
+        return filters;
+    }, [selectedFacets, state.yearRange]);
+
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const filters: Record<string, any> = {};
-
-            // Convert UI Facets state to DSL filters
-            for (const [key, values] of Object.entries(selectedFacets)) {
-                if (values.length > 0) {
-                    if (key.startsWith("-")) {
-                        const field = key.substring(1);
-                        if (!filters[field]) filters[field] = {};
-                        filters[field].none = values;
-                    } else {
-                        if (!filters[key]) filters[key] = {};
-                        filters[key].any = values;
-                    }
-                }
-            }
-
-            // Add Year Range Filter
-            if (state.yearRange) {
-                const parts = state.yearRange.split(",").map(Number);
-                if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-                    filters['gbl_indexYear_im'] = { ...filters['gbl_indexYear_im'], gte: parts[0], lte: parts[1] };
-                }
-            }
+            const filters = activeFilters;
 
             let sortObj = { field: "dct_title_s", dir: "asc" } as any;
             if (state.sort === "year_desc") sortObj = { field: "gbl_indexYear_im", dir: "desc" };
@@ -194,7 +195,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
         } finally {
             setLoading(false);
         }
-    }, [q, selectedFacets, page, state.sort, state.bbox, state.yearRange]);
+    }, [q, activeFilters, page, state.sort, state.bbox, state.yearRange]);
 
     useEffect(() => {
         fetchData();
@@ -241,22 +242,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
     const handleExport = async (format: 'json' | 'csv') => {
         setIsExporting(true);
         try {
-            const filters: Record<string, any> = {};
-            for (const [key, values] of Object.entries(selectedFacets)) {
-                if (values.length > 0) {
-                    if (key.startsWith("-")) {
-                        const field = key.substring(1);
-                        if (!filters[field]) filters[field] = {};
-                        filters[field].none = values;
-                    } else {
-                        if (!filters[key]) filters[key] = {};
-                        filters[key].any = values;
-                    }
-                }
-            }
-            if (currentYearRange) {
-                filters['gbl_indexYear_im'] = { ...filters['gbl_indexYear_im'], gte: currentYearRange[0], lte: currentYearRange[1] };
-            }
+            const filters = activeFilters;
             const req: FacetedSearchRequest = {
                 q: q,
                 filters,
@@ -397,23 +383,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ project, onEdit, onCreate 
                     isOpen={true}
                     onClose={() => setModalState(null)}
                     q={q}
-                    filters={(() => {
-                        const f: Record<string, any> = {};
-                        // Convert UI Facets state to DSL filters (Reuse logic from fetchData, maybe refactor later)
-                        for (const [key, values] of Object.entries(selectedFacets)) {
-                            if (values.length > 0) {
-                                if (key.startsWith("-")) {
-                                    const field = key.substring(1);
-                                    if (!f[field]) f[field] = {};
-                                    f[field].none = values;
-                                } else {
-                                    if (!f[key]) f[key] = {};
-                                    f[key].any = values;
-                                }
-                            }
-                        }
-                        return f;
-                    })()}
+                    filters={activeFilters}
                     bbox={state.bbox}
                     yearRange={state.yearRange}
                     selectedValues={selectedFacets[modalState.field] || []}
