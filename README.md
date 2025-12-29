@@ -1,4 +1,4 @@
-# Aardvark Metadata Studio
+# OGM Metadata Studio
 
 A browser-native metadata management workspace for the [OpenGeoMetadata Aardvark](https://opengeometadata.org/schema/geoblacklight-schema-aardvark.json) standard.
 
