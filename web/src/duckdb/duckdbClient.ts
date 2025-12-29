@@ -1,212 +1,15 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
+
 import { Resource, resourceToJson, SCALAR_FIELDS, REPEATABLE_STRING_FIELDS, CSV_HEADER_MAPPING, Distribution, REFERENCE_URI_MAPPING } from "../aardvark/model";
 import { resourceFromRow } from "../aardvark/mapping";
-import workerUrl from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url";
-import wasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
-import mvpWorkerUrl from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url";
-import mvpWasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
 import embeddingWorkerUrl from "../workers/embedding.worker?worker&url";
+import { getDuckDbContext, DuckDbContext, DB_FILENAME, saveToIndexedDB, INDEXEDDB_NAME } from "./dbInit";
 
 import JSZip from "jszip";
 
-const DB_FILENAME = "records.duckdb";
-const INDEXEDDB_NAME = "aardvark-duckdb";
-const INDEXEDDB_STORE = "database";
+export { getDuckDbContext };
+export type { DuckDbContext };
 
-export interface DuckDbContext {
-  db: duckdb.AsyncDuckDB;
-  conn: duckdb.AsyncDuckDBConnection;
-}
-
-let cached: Promise<DuckDbContext | null> | null = null;
-let initError: Error | null = null;
-
-// Initialize DuckDB
-// Initialize DuckDB
-export async function getDuckDbContext(): Promise<DuckDbContext | null> {
-  if (cached) return cached;
-
-  cached = (async () => {
-    try {
-      const db = await initializeDuckDB();
-
-      // Always start with memory to ensure we have a valid interface
-      await db.open({ path: ':memory:' });
-
-      // Attempt to load from IndexedDB
-      const idbBuffer = await loadFromIndexedDB();
-
-      if (idbBuffer) {
-        console.log("Restoring DB from IndexedDB...");
-        try {
-          await db.registerFileBuffer(DB_FILENAME, idbBuffer);
-        } catch (e) {
-          console.warn("Failed to register IDB buffer", e);
-        }
-      } else {
-        // Try server fetch if IDB failed/empty
-        console.log("Fetching DB from server...");
-        try {
-          const response = await fetch(`/${DB_FILENAME}`);
-          if (response.ok) {
-            const buffer = new Uint8Array(await response.arrayBuffer());
-            await db.registerFileBuffer(DB_FILENAME, buffer);
-            console.log("Opened DB from server.");
-          }
-        } catch (e) {
-          console.warn("Server DB fetch failed or invalid", e);
-        }
-      }
-
-      const conn = await db.connect();
-
-      // Optimization & Extensions
-      await conn.query("SET preserve_insertion_order=false");
-      await conn.query("INSTALL fts; LOAD fts;");
-      await conn.query("INSTALL spatial; LOAD spatial;");
-
-      // Attach the persistent file. This creates it if it doesn't exist.
-      // If it exists but is corrupt, ATTACH might fail.
-      let attached = false;
-      try {
-        await conn.query(`ATTACH '${DB_FILENAME}'`);
-        attached = true;
-      } catch (err: any) {
-        console.warn("Used existing file but ATTACH failed (corruption?). Starting fresh.", err);
-        // Corruption? Drop file and retry (creates new)
-        try { await db.dropFile(DB_FILENAME); } catch { /* ignore */ }
-        try {
-          await conn.query(`ATTACH '${DB_FILENAME}'`);
-          attached = true;
-        } catch (retryErr) {
-          console.error("Retried ATTACH failed", retryErr);
-        }
-      }
-
-      if (attached) {
-        // Set as default so queries don't need 'records.' prefix
-        await conn.query(`USE records`);
-      } else {
-        console.warn("Could not ATTACH persistent DB. Running purely in-memory.");
-      }
-
-      await ensureSchema(conn);
-      return { db, conn };
-    } catch (err: any) {
-      console.error("DuckDB initialization failed", err);
-      initError = err;
-      return null;
-    }
-  })();
-
-  return cached;
-}
-
-async function initializeDuckDB(): Promise<duckdb.AsyncDuckDB> {
-  try {
-    return await createDB(workerUrl, wasmUrl);
-  } catch (err) {
-    console.warn("DuckDB EH initialization failed, trying MVP...", err);
-    try {
-      return await createDB(mvpWorkerUrl, mvpWasmUrl);
-    } catch (mvpErr) {
-      console.error("DuckDB MVP initialization failed", mvpErr);
-      throw err; // Throw the original error or the new one? Let's throw the original to keep context, or mvpErr.
-    }
-  }
-}
-
-async function createDB(wUrl: string, waUrl: string): Promise<duckdb.AsyncDuckDB> {
-  const worker = new Worker(wUrl, { type: "module" });
-  const logger = new duckdb.ConsoleLogger();
-  const db = new duckdb.AsyncDuckDB(logger, worker);
-  try {
-    await db.instantiate(waUrl);
-    return db;
-  } catch (err) {
-    worker.terminate();
-    throw err;
-  }
-}
-
-async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
-  // resources table (scalars)
-  const scalarCols = SCALAR_FIELDS.map(f => `"${f}" VARCHAR`).join(", ");
-  await conn.query(`CREATE TABLE IF NOT EXISTS resources (${scalarCols}, geom GEOMETRY, embedding FLOAT[])`);
-
-  // Ensure geom column exists (migration)
-  const resInfo = await conn.query(`DESCRIBE resources`);
-  const resCols = resInfo.toArray().map((r: any) => r.column_name);
-  if (!resCols.includes('geom')) {
-    await conn.query(`ALTER TABLE resources ADD COLUMN geom GEOMETRY`);
-  }
-  if (!resCols.includes('embedding')) {
-    await conn.query(`ALTER TABLE resources ADD COLUMN embedding FLOAT[]`);
-  }
-
-  // resources_mv (multivalue)
-  await conn.query(`CREATE TABLE IF NOT EXISTS resources_mv (id VARCHAR, field VARCHAR, val VARCHAR)`);
-
-  // Backfill GEOMETRY from dcat_bbox if missing
-  try {
-    const needsBackfill = await conn.query("SELECT count(*) as c FROM resources WHERE geom IS NULL AND dcat_bbox LIKE 'ENVELOPE(%'");
-    if (Number(needsBackfill.toArray()[0].c) > 0) {
-      console.log("Backfilling spatial index...");
-      await conn.query(`
-          UPDATE resources
-          SET geom = ST_MakeEnvelope(
-            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[1] AS DOUBLE),
-            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[4] AS DOUBLE),
-            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[2] AS DOUBLE),
-            CAST((str_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[3] AS DOUBLE)
-          )
-          WHERE geom IS NULL AND dcat_bbox LIKE 'ENVELOPE(%'
-        `);
-      console.log("Spatial backfill complete.");
-    }
-  } catch (e) {
-    console.warn("Spatial backfill failed", e);
-  }
-
-  // distributions
-  await conn.query(`CREATE TABLE IF NOT EXISTS distributions (resource_id VARCHAR, relation_key VARCHAR, url VARCHAR, label VARCHAR)`);
-
-  // Ensure label column exists (migration)
-  const distInfo = await conn.query(`DESCRIBE distributions`);
-  const distCols = distInfo.toArray().map((r: any) => r.column_name);
-  if (!distCols.includes('label')) {
-    await conn.query(`ALTER TABLE distributions ADD COLUMN label VARCHAR`);
-  }
-
-  // resources_image_service (Thumbnail Cache)
-  try {
-    const resImgInfo = await conn.query(`DESCRIBE resources_image_service`);
-    const hasData = resImgInfo.toArray().some((r: any) => r.column_name === 'data');
-    if (!hasData) {
-      console.log("Migrating resources_image_service: Dropping old table");
-      await conn.query(`DROP TABLE resources_image_service`);
-    }
-  } catch { /* Table likely doesn't exist, ignore */ }
-
-  await conn.query(`CREATE TABLE IF NOT EXISTS resources_image_service (id VARCHAR PRIMARY KEY, data VARCHAR, last_updated BIGINT)`);
-
-  // static_maps (Static Map Cache)
-  try {
-    const staticMapInfo = await conn.query(`DESCRIBE static_maps`);
-    const hasData = staticMapInfo.toArray().some((r: any) => r.column_name === 'data');
-    if (!hasData) {
-      console.log("Migrating static_maps: Dropping old table");
-      await conn.query(`DROP TABLE static_maps`);
-    }
-  } catch { /* Table likely doesn't exist, ignore */ }
-
-  await conn.query(`CREATE TABLE IF NOT EXISTS static_maps (id VARCHAR PRIMARY KEY, data VARCHAR, last_updated BIGINT)`);
-
-  // search_index (FTS)
-  await conn.query(`CREATE TABLE IF NOT EXISTS search_index (id VARCHAR, content VARCHAR)`);
-  // Try to create index, use overwrite=1 to avoid error if exists
-  await conn.query(`PRAGMA create_fts_index('search_index', 'id', 'content', overwrite=1)`);
-}
 
 export async function zipResources(resources: Resource[]): Promise<Blob> {
   const zip = new JSZip();
@@ -886,7 +689,7 @@ export async function querySimilarResources(id: string, limit: number = 12): Pro
 
 export async function importCsv(file: File): Promise<{ success: boolean, message: string, count?: number }> {
   const ctx = await getDuckDbContext();
-  if (!ctx) return { success: false, message: `DB not available${initError ? `: ${initError.message}` : ""}` };
+  if (!ctx) return { success: false, message: `DB not available. Check console for initialization errors.` };
   const { db, conn } = ctx;
 
   try {
@@ -1279,59 +1082,9 @@ export async function upsertResource(resource: Resource, distributions: Distribu
 
 // *** IndexedDB Helpers ***
 
-async function loadFromIndexedDB(): Promise<Uint8Array | null> {
-  return new Promise((resolve) => {
-    console.log(`[IndexedDB] Opening ${INDEXEDDB_NAME} to read...`);
-    const req = indexedDB.open(INDEXEDDB_NAME, 1);
-    req.onupgradeneeded = (e: any) => {
-      console.log("[IndexedDB] Creating object store...");
-      e.target.result.createObjectStore(INDEXEDDB_STORE);
-    }
-    req.onsuccess = (e: any) => {
-      const db = e.target.result;
-      const tx = db.transaction([INDEXEDDB_STORE], "readonly");
-      const get = tx.objectStore(INDEXEDDB_STORE).get(DB_FILENAME);
-      get.onsuccess = () => {
-        if (get.result && get.result.byteLength > 0) {
-          console.log("[IndexedDB] Found valid DB.");
-          resolve(get.result);
-        } else {
-          console.log("[IndexedDB] Found empty/invalid DB.");
-          resolve(null);
-        }
-      };
-      get.onerror = () => {
-        console.warn("[IndexedDB] Failed to load DB", get.error);
-        resolve(null);
-      };
-    };
-    req.onerror = () => {
-      console.warn("[IndexedDB] Failed to open DB", req.error);
-      resolve(null);
-    };
-  });
-}
 
-async function saveToIndexedDB(buffer: Uint8Array): Promise<void> {
-  return new Promise((resolve, reject) => {
-    console.log(`[IndexedDB] Saving ${buffer.byteLength} bytes...`);
-    const req = indexedDB.open(INDEXEDDB_NAME, 1);
-    req.onupgradeneeded = (e: any) => {
-      e.target.result.createObjectStore(INDEXEDDB_STORE);
-    }
-    req.onsuccess = (e: any) => {
-      const db = e.target.result;
-      const tx = db.transaction([INDEXEDDB_STORE], "readwrite");
-      const put = tx.objectStore(INDEXEDDB_STORE).put(buffer, DB_FILENAME);
-      put.onsuccess = () => {
-        console.log("[IndexedDB] Save successful.");
-        resolve();
-      };
-      put.onerror = () => reject(put.error);
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
+
+
 
 
 // ... existing code ...

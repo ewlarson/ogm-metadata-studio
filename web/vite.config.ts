@@ -63,10 +63,18 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: "./src/setupTests.ts",
     css: true,
+    alias: {
+      // Force source map generation for coverage
+    },
     coverage: {
       provider: 'v8',
+      all: true,
       reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.{ts,tsx}'],
       exclude: [
+        'src/vite-env.d.ts',
+        'src/main.tsx',
+        'src/App.tsx',
         'coverage/**',
         'dist/**',
         '**/[.]**',
@@ -86,6 +94,7 @@ export default defineConfig({
       ],
     },
   },
-});
+} as any);
+
 
 

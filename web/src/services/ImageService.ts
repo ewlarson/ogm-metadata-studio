@@ -84,6 +84,9 @@ export class ImageService {
                     return `https://cdm16022.contentdm.oclc.org/iiif/2/${match2[1]}/full/200,/0/default.jpg`;
                 }
             }
+            if (url.endsWith("/info.json")) {
+                return url.replace("/info.json", "/full/200,/0/default.jpg");
+            }
             return `${url}/full/200,/0/default.jpg`;
         }
 
