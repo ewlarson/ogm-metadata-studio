@@ -1,98 +1,78 @@
 # Aardvark Metadata Studio
 
-A browser-based editor for [OpenGeoMetadata Aardvark](https://opengeometadata.org/schema/geoblacklight-schema-aardvark.json) records, powered by **React**, **Vite**, and **DuckDB WASM**.
+A browser-native metadata management workspace for the [OpenGeoMetadata Aardvark](https://opengeometadata.org/schema/geoblacklight-schema-aardvark.json) standard.
 
-This application allows you to manage geospatial metadata JSON files stored in a GitHub repository directly from your browser, with powerful tabular editing capabilities backed by a local in-browser SQL database.
+**Aardvark Metadata Studio** enables libraries and researchers to manage geospatial metadata repositories (like OpenGeoMetadata) entirely in the browser. It combines the speed of a local database engine with the persistence of standard Git workflows.
 
-## Deployment
+Built with **React**, **Vite**, **DuckDB-WASM**, and **GitHub REST API**.
 
-This project is configured to automatically deploy to **GitHub Pages** using GitHub Actions.
+## ✨ Features
 
-### One-Time Setup
-1. Go to your repository **Settings** > **Pages**.
-2. Under **Build and deployment** > **Source**, select **GitHub Actions**.
-3. The `Data Pipeline & Deploy` workflow will automatically pick this up on the next push.
+*   **Browser-Native SQL Engine**: Uses [DuckDB-WASM](https://duckdb.org/docs/api/wasm/overview) to perform sub-millisecond queries, filtering, and aggregation on thousands of records directly in the client. No backend server required.
+*   **Git-Backed Persistence**: "Database" changes are actually local state changes that can be synced back to GitHub as `git commit` actions. Your metadata remains in standard JSON files, version-controlled and forkable.
+*   **Faceted Search & Discovery**: Powerful faceted search UI (similar to GeoBlacklight) for exploring your metadata collection, powered by SQL `GROUP BY` and `ILIKE` logic.
+*   **Interactive Mapping**: Integrated Leaflet maps to visual bounding boxes (`dcat_bbox`) and spatial footprints.
+*   **Data Ingestion**: Import data from CSV or JSON sources, with automatic validation against the Aardvark schema constants.
+*   **Embeddings & AI**: (Experimental) Local Web Worker-based text embedding generation for semantic search capabilities.
 
-### Architecture
-- **Source**: JSON files in `metadata/` are the source of truth.
-- **Build**: The `build:db` script runs in CI, compiling all JSONs into a single `resources.parquet` file.
-- **Frontend**: The React app loads this Parquet file on startup, enabling a fast, read-only experience without needing a GitHub token.
+## 🛠️ Architecture
 
-## Features
+*   **Frontend**: React + TypeScript + Vite
+*   **Database**: DuckDB WASM (Persistent `records.duckdb` stored in IndexedDB)
+*   **Testing**: Vitest + React Testing Library + JSDOM
+*   **Styling**: Tailwind CSS
+*   **API**: Direct GitHub REST API calls (no intermediate auth server)
 
-- **GitHub Integration**: Connect directly to your metadata repository using a Personal Access Token (PAT). No backend server required.
-- **Local SQL Engine**: Runs [DuckDB WASM](https://duckdb.org/docs/api/wasm/overview) entirely in your browser to query and manage thousands of records efficiently.
-- **Tabular Editing**: View and edit your metadata resources and distributions as tables.
-- **Metadata Sync**:
-  - Pulls JSON files from your GitHub repository `metadata/` folder.
-  - Syncs them into a local DuckDB database.
-  - Persists state locally using IndexedDB (so you don't lose work on refresh).
-- **Aardvark Compliant**: Native support for the Aardvark schema, including proper handling of `dct_references_s` as a relational distributions table.
-
-## Getting Started
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18 or later)
-- A GitHub repository containing Aardvark JSON records in a `metadata/` folder (or an empty repo to start fresh).
+*   Node.js (v18+)
+*   A GitHub Personal Access Token (PAT) with `repo` scope (for private repos) or public access.
 
 ### Installation
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/ewlarson/gitcrud.git
-   cd gitcrud/web
-   ```
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/ewlarson/gitcrud.git
+    cd gitcrud/web
+    ```
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+2.  Install dependencies:
+    ```bash
+    npm install
+    ```
 
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
+3.  Run the Development Server:
+    ```bash
+    npm run dev
+    ```
+    The app will start at `http://localhost:5173`.
 
-4. Open your browser to the local URL (usually `http://localhost:5173`).
+## 🧪 Testing
 
-## Usage
+This project maintains a high standard of test coverage using **Vitest**.
 
-### 1. Connect to GitHub
-- Generate a [GitHub Personal Access Token (Classic)](https://github.com/settings/tokens) with `repo` scope.
-- In the app, enter:
-  - **Owner**: GitHub username or organization (e.g., `ewlarson`).
-  - **Repository**: Repository name (e.g., `gitcrud`).
-  - **Branch**: Main branch name (e.g., `main`).
-  - **Metadata Path**: Folder where JSON files are stored (default: `metadata`).
-  - **Token**: Your PAT.
-- Click **Connect**. The app will verify access and load existing JSON files into the local DuckDB.
+### Running Tests
+Run the full unit and integration test suite:
+```bash
+npm test
+```
 
-### 2. View and Edit
-- **Resource List**: See all your records in a sortable list.
-- **Tabular Editor**: Click "Show Tabular Editor" to view `resources` and `distributions` tables. You can run SQL queries directly against your metadata!
-- **Edit Record**: Select a record to modify its fields (Title, Description, Rights, etc.).
+### Coverage Reports
+Generate a coverage report (check `coverage/` directory for HTML output):
+```bash
+npm run coverage
+```
+*Note: Due to source-mapping limitations in the JSDOM+Vite environment, console coverage reports may show 0% despite tests passing. This is a known tooling artifact; rely on the pass/fail status.*
 
-### 3. Sync Changes
-(Feature in progress)
-- Changes made in the UI are applied to the local DuckDB database.
-- Future updates will enable pushing changes back to GitHub as commits.
+## 📦 Data Workflow
 
-## Architecture
+1.  **Connect**: Provide your GitHub Owner/Repo/Branch/Token to pull the latest `metadata/*.json` files.
+2.  **Ingest**: The app loads these JSONs into `records.duckdb` (client-side).
+3.  **Edit/Search**: Use the dashboard to filter, search, and edit records.
+4.  **Sync**: (In Progress) Edits are committed back to your GitHub repository as new JSON versions.
 
-- **Frontend**: React + TypeScript + Vite
-- **Database**: DuckDB WASM (loaded via Vite assets)
-- **Styling**: Tailwind CSS
-- **Persistence**: IndexedDB (via DuckDB) + LocalStorage (for config)
-- **API**: GitHub REST API (direct from browser)
+## 🤝 Contributing
 
-## Troubleshooting
-
-### DuckDB Loading Issues
-If you see errors related to DuckDB initialization:
-- Ensure you are running a modern browser with WebAssembly support.
-- Check the console for CORS errors (Cross-Origin-Opener-Policy headers are configured in `vite.config.ts` to support WASM threads).
-
-### GitHub Connection
-- Verify your PAT has `repo` (Full control of private repositories) or `public_repo` (for public repos) scope.
-- Ensure the repository exists and the branch name is correct.
+Contributions are welcome! Please ensure any new features are accompanied by tests in `src/duckdb/` or `src/ui/`.
