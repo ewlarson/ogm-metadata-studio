@@ -11,6 +11,7 @@ import { useUrlState } from "../hooks/useUrlState";
 import { AutosuggestInput } from "./AutosuggestInput";
 import { ThemeToggle } from "./ThemeToggle";
 import { ResourceShow } from "./ResourceShow";
+import { ResourceAdmin } from "./ResourceAdmin";
 
 
 export const App: React.FC = () => {
@@ -18,7 +19,7 @@ export const App: React.FC = () => {
   const [resourceCount, setResourceCount] = useState<number>(0);
 
   // URL State
-  type ViewType = "dashboard" | "admin" | "edit" | "create" | "import" | "distributions" | "list" | "gallery" | "map" | "resource";
+  type ViewType = "dashboard" | "admin" | "edit" | "create" | "import" | "distributions" | "list" | "gallery" | "map" | "resource" | "resource_admin";
   interface AppState {
     view: ViewType;
     id?: string;
@@ -40,6 +41,12 @@ export const App: React.FC = () => {
           return { view: "edit", id: decodeURIComponent(editMatch[1]) };
         }
 
+        // Check for /resources/:id/admin
+        const adminMatch = pathname.match(/^\/resources\/([^/]+)\/admin$/);
+        if (adminMatch) {
+          return { view: "resource_admin", id: decodeURIComponent(adminMatch[1]) };
+        }
+
         // Check for /resources/:id
         const resourceMatch = pathname.match(/^\/resources\/([^/]+)$/);
         if (resourceMatch) {
@@ -57,6 +64,9 @@ export const App: React.FC = () => {
       path: (s) => {
         if (s.view === "edit" && s.id) {
           return `/resources/${encodeURIComponent(s.id)}/edit`;
+        }
+        if (s.view === "resource_admin" && s.id) {
+          return `/resources/${encodeURIComponent(s.id)}/admin`;
         }
         if (s.view === "resource" && s.id) {
           return `/resources/${encodeURIComponent(s.id)}`;
@@ -328,6 +338,15 @@ export const App: React.FC = () => {
                 <ResourceShow
                   id={selectedId}
                   onBack={() => setUrlState({ view: 'dashboard' })}
+                />
+              </div>
+            )}
+
+            {view === "resource_admin" && selectedId && (
+              <div className="-m-6 h-[calc(100%+3rem)]">
+                <ResourceAdmin
+                  id={selectedId}
+                  onBack={() => setUrlState({ view: 'resource', id: selectedId })}
                 />
               </div>
             )}

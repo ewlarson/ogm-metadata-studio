@@ -17,7 +17,17 @@ export async function zipResources(resources: Resource[]): Promise<Blob> {
   for (const res of resources) {
     if (!res.id) continue;
     const json = resourceToJson(res);
-    zip.file(`${res.id}.json`, JSON.stringify(json, null, 2));
+
+    // Determine folder name based on primary Resource Class
+    let folder = "Uncategorized";
+    if (res.gbl_resourceClass_sm && res.gbl_resourceClass_sm.length > 0) {
+      folder = res.gbl_resourceClass_sm[0];
+    }
+
+    // Clean folder name to be safe
+    folder = folder.replace(/[^a-zA-Z0-9 _-]/g, "");
+
+    zip.file(`metadata-aardvark/${folder}/${res.id}.json`, JSON.stringify(json, null, 2));
     count++;
   }
   console.log(`Zipped ${count} resources.`);
@@ -501,11 +511,13 @@ export async function queryResourceById(id: string): Promise<Resource | null> {
   const scalarSql = `SELECT * FROM resources WHERE id = '${safeId}'`;
   const mvSql = `SELECT * FROM resources_mv WHERE id = '${safeId}'`;
   const distSql = `SELECT * FROM distributions WHERE resource_id = '${safeId}'`;
+  const thumbSql = `SELECT * FROM resources_image_service WHERE id = '${safeId}'`;
 
-  const [scalarRes, mvRes, distRes] = await Promise.all([
+  const [scalarRes, mvRes, distRes, thumbRes] = await Promise.all([
     conn.query(scalarSql),
     conn.query(mvSql),
-    conn.query(distSql)
+    conn.query(distSql),
+    conn.query(thumbSql)
   ]);
 
   const scalarRows = scalarRes.toArray();
@@ -514,6 +526,7 @@ export async function queryResourceById(id: string): Promise<Resource | null> {
 
   const mvs = mvRes.toArray();
   const dists = distRes.toArray();
+  const thumbRows = thumbRes.toArray();
 
   const r: any = {};
   for (const k of SCALAR_FIELDS) {
@@ -525,7 +538,28 @@ export async function queryResourceById(id: string): Promise<Resource | null> {
     r[mv.field].push(mv.val);
   }
 
-  return resourceFromRow(r, dists);
+  const resObj = resourceFromRow(r, dists);
+
+  // Attach thumbnail if available
+  if (thumbRows.length > 0) {
+    try {
+      const base64 = thumbRows[0].data;
+      if (base64) {
+        const binaryString = atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'image/jpeg' });
+        resObj.thumbnail = URL.createObjectURL(blob);
+      }
+    } catch (e) {
+      console.warn("Failed to decode thumbnail in queryResourceById", e);
+    }
+  }
+
+  return resObj;
 }
 
 // *** Vector Embedding Engine ***

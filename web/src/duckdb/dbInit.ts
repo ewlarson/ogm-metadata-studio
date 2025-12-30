@@ -141,6 +141,12 @@ async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
     // resources_mv (multivalue)
     await conn.query(`CREATE TABLE IF NOT EXISTS resources_mv (id VARCHAR, field VARCHAR, val VARCHAR)`);
 
+    // distributions
+    await conn.query(`CREATE TABLE IF NOT EXISTS distributions (resource_id VARCHAR, relation_key VARCHAR, url VARCHAR, label VARCHAR)`);
+
+    // resources_image_service(thumbnails)
+    await conn.query(`CREATE TABLE IF NOT EXISTS resources_image_service (id VARCHAR, data VARCHAR, last_updated UBIGINT)`);
+
     // Backfill GEOMETRY from dcat_bbox if missing
 }
 
