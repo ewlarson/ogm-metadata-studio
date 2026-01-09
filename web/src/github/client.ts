@@ -59,6 +59,10 @@ export class GithubClient {
     return (await res.json()) as T;
   }
 
+  async fetchRepoInfo(owner: string, repo: string): Promise<any> {
+    return this.request(`/repos/${owner}/${repo}`);
+  }
+
 
 
   async fetchTree(): Promise<{ path: string; sha: string; type: string }[]> {

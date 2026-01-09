@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { GithubClient } from '../github/client';
 import { importJsonData, saveDb } from '../duckdb/duckdbClient';
+import { gbl1ToAardvark } from '../aardvark/gbl1_to_aardvark';
 
 export const GithubImport: React.FC = () => {
     // Inputs
@@ -12,6 +13,7 @@ export const GithubImport: React.FC = () => {
     const [isScanning, setIsScanning] = useState(false);
     const [scanError, setScanError] = useState<string | null>(null);
     const [foundFiles, setFoundFiles] = useState<{ path: string; sha: string }[]>([]);
+    const [schemaMode, setSchemaMode] = useState<'aardvark' | 'gbl1'>('aardvark');
 
     const [isImporting, setIsImporting] = useState(false);
     const [importProgress, setImportProgress] = useState({ current: 0, total: 0, successes: 0, failures: 0 });
@@ -36,6 +38,7 @@ export const GithubImport: React.FC = () => {
         setIsScanning(true);
         setScanError(null);
         setFoundFiles([]);
+        setSchemaMode('aardvark');
 
         setErrorLogs([]);
 
@@ -49,49 +52,90 @@ export const GithubImport: React.FC = () => {
         const client = new GithubClient({ token: token || undefined });
 
         try {
-            // 1. Verify access (and branch somewhat implicitly by fetching tree)
-            // Smart Fetch: Try to get 'metadata-aardvark' subtree specifically first to avoid 100k limit.
-            console.log(`[GithubImport] Attempting smart fetch for 'metadata-aardvark' subtree...`);
+            // 0. Auto-detect default branch if possible
+            // We want to help the user who leaves "main" but the repo uses "master".
+            let effectiveBranch = branch;
+            try {
+                const repoData = await client.fetchRepoInfo(repoRef.owner, repoRef.repo);
+                if (repoData.default_branch && branch === "main" && repoData.default_branch !== "main") {
+                    console.log(`[GithubImport] Switch branch 'main' -> '${repoData.default_branch}' (repo default)`);
+                    effectiveBranch = repoData.default_branch;
+                    setBranch(effectiveBranch); // Update UI
+                }
+            } catch (e) {
+                console.warn("Could not fetch repo info for default branch check", e);
+            }
+
+            // 1. Try 'metadata-aardvark' first
+            console.log(`[GithubImport] Attempting smart fetch for 'metadata-aardvark' subtree on ${effectiveBranch}...`);
             let files: { path: string; sha: string }[] = [];
-            let subTreeMode = false; // Flag to indicate if we successfully fetched the subtree
+            let mode: 'aardvark' | 'gbl1' = 'aardvark';
 
             try {
-                const subtreeFiles = await client.fetchSubtree({ ...repoRef, branch }, "metadata-aardvark");
-                // Prepend 'metadata-aardvark/' to paths as fetchSubtree returns paths relative to the subtree root
+                const subtreeFiles = await client.fetchSubtree({ ...repoRef, branch: effectiveBranch }, "metadata-aardvark");
+                if (subtreeFiles.length === 0) throw new Error("metadata-aardvark not found or empty");
+
                 files = subtreeFiles.map(f => ({ ...f, path: `metadata-aardvark/${f.path}` }));
-                subTreeMode = true;
-                console.log(`[GithubImport] Subtree fetch successful. Got ${files.length} items.`);
+                console.log(`[GithubImport] Found metadata-aardvark. Got ${files.length} items.`);
+                mode = 'aardvark';
             } catch (e) {
-                console.warn("[GithubImport] Subtree fetch failed (maybe no such folder at root?), falling back to full recursive.", e);
-                files = await client.fetchRecursiveTree({ ...repoRef, branch });
-                subTreeMode = false;
+                console.warn("[GithubImport] No metadata-aardvark folder found. Keeping checks open.");
+
+                // 2. Fallback: Check for 'json' folder (common in GBL v1 repos like Harvard)
+                try {
+                    console.log(`[GithubImport] Checking for legacy 'json' folder...`);
+                    const subtreeFiles = await client.fetchSubtree({ ...repoRef, branch: effectiveBranch }, "json");
+                    if (subtreeFiles.length === 0) throw new Error("json folder not found or empty");
+
+                    files = subtreeFiles.map(f => ({ ...f, path: `json/${f.path}` }));
+                    console.log(`[GithubImport] Found json folder. Got ${files.length} items.`);
+                    mode = 'gbl1';
+                } catch (e2) {
+                    // 3. Fallback: Full Scan
+                    console.warn("[GithubImport] No json folder found either. Falling back to full recursive.");
+                    files = await client.fetchRecursiveTree({ ...repoRef, branch: effectiveBranch });
+                    // We will decide mode based on file contents or paths later, but for now default Aardvark
+                    // If we scan recursively and find no folders, it's tough.
+                    // But usually OGM repos have structure.
+                }
             }
 
-            // 2. Filter for metadata-aardvark json files
-            // Note: If we fetched subtree, the paths might still be relative to root or subtree depending on API.
-            // GitHub API returns paths relative to repo root even in subtrees usually? Let's check.
-            // Actually, if we use fetchTree on a subtree SHA, the paths are relative to that SHA (i.e. inside the folder).
-            // So 'metadata-aardvark/foo.json' becomes 'foo.json'.
-            // We need to handle this.
+            setSchemaMode(mode);
 
-            // If we have files, check samples.
-            if (files.length > 0) {
-                console.log("[GithubImport] Sample paths:", files.slice(0, 5).map(f => f.path));
+            // Filter for JSON
+            let jsonFiles = files.filter(f => f.path.endsWith(".json"));
+
+            // If we are in recursive fallback mode (mode === 'aardvark' still, but maybe we should re-evaluate)
+            // If the fallback scan ran, 'mode' is likely still 'aardvark' from initialization, or whatever the last attempt set?
+            // Wait, in my code, if fallback runs, mode is NOT updated.
+
+            // Heuristic detection if we have JSONs but not from known folders
+            if (jsonFiles.length > 0) {
+                const aardvark = jsonFiles.filter(f => f.path.includes("metadata-aardvark"));
+                // Check for "json" folder anywhere in path
+                const legacy = jsonFiles.filter(f => f.path.split("/").includes("json"));
+
+                if (aardvark.length > 0) {
+                    // Prioritize Aardvark
+                    jsonFiles = aardvark;
+                    setSchemaMode('aardvark');
+                } else if (legacy.length > 0) {
+                    // If we found 'json' folders, assume legacy
+                    jsonFiles = legacy;
+                    setSchemaMode('gbl1');
+                } else {
+                    // Fallback: If we found JSONs but they are just random?
+                    // Let's assume they are GBL1 if we couldn't find metadata-aardvark
+                    setSchemaMode('gbl1');
+                }
             }
 
-            const aardvarkFiles = files.filter(f =>
-                f.path.endsWith(".json") && (subTreeMode || f.path.includes("metadata-aardvark"))
-            );
-            console.log(`[GithubImport] Filtered down to ${aardvarkFiles.length} aardvark files.`);
-
-            if (aardvarkFiles.length === 0) {
-                const totalJson = files.filter(f => f.path.endsWith(".json")).length;
-                const hasFolder = files.some(f => f.path.includes("metadata-aardvark"));
-                const firstJson = files.find(f => f.path.endsWith(".json"))?.path || "None";
-
-                setScanError(`Scanned ${files.length} files. MATCH FAILED.\nDiagnostics: Has 'metadata-aardvark'? ${hasFolder}. Total JSONs: ${totalJson}. First JSON: ${firstJson}`);
+            if (jsonFiles.length === 0) {
+                // Construct a better error message with sample paths
+                const sample = files.slice(0, 5).map(f => f.path).join(", ");
+                setScanError(`Scanned ${files.length} files but found no JSON files. Sample paths: ${sample}`);
             } else {
-                setFoundFiles(aardvarkFiles);
+                setFoundFiles(jsonFiles);
             }
 
         } catch (err: any) {
@@ -115,10 +159,6 @@ export const GithubImport: React.FC = () => {
 
         const client = new GithubClient({ token: token || undefined });
 
-        // Optimization: Use Parallel Raw Fetches.
-        // Zipball is faster but 'codeload.github.com' has CORS restrictions that block browser access.
-        // Raw content (raw.githubusercontent.com) has proper CORS headers.
-
         const CHUNK_SIZE = 50;
         let successes = 0;
         let failures = 0;
@@ -128,7 +168,24 @@ export const GithubImport: React.FC = () => {
 
             await Promise.all(chunk.map(async (file) => {
                 try {
-                    const json = await client.fetchPublicJson({ ...repoRef, branch }, file.path);
+                    let json = await client.fetchPublicJson({ ...repoRef, branch }, file.path);
+
+                    // GBL v1 Handling
+                    if (schemaMode === 'gbl1') {
+                        // Check for double-encoded string (e.g. Harvard)
+                        if (typeof json === 'string') {
+                            try {
+                                json = JSON.parse(json);
+                            } catch (e) {
+                                // Maybe it was just a string? Unlikely for metadata
+                                throw new Error("Failed to parse double-encoded JSON string");
+                            }
+                        }
+
+                        // Crosswalk
+                        json = gbl1ToAardvark(json);
+                    }
+
                     const count = await importJsonData(json, { skipSave: true });
 
                     if (count > 0) {
@@ -218,9 +275,12 @@ export const GithubImport: React.FC = () => {
             {foundFiles.length > 0 && (
                 <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-slate-800">
                     <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-medium text-slate-900 dark:text-slate-200">
-                            Found {foundFiles.length} Aardvark JSON files
-                        </h3>
+                        <div>
+                            <h3 className="text-sm font-medium text-slate-900 dark:text-slate-200">
+                                Found {foundFiles.length} files
+                            </h3>
+                            <p className="text-xs text-slate-500">Detected Schema: <span className="font-semibold uppercase">{schemaMode}</span></p>
+                        </div>
                         {!isImporting && (
                             <button
                                 onClick={handleImport}
