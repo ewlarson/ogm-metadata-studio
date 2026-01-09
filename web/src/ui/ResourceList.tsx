@@ -3,6 +3,7 @@ import { Resource } from "../aardvark/model";
 import { searchResources, SearchResult } from "../duckdb/duckdbClient";
 import { ProjectConfig } from "../github/client";
 import { Pagination, SortHeader, TableContainer } from "./shared/Table";
+import { Link } from "./Link";
 
 interface ResourceListProps {
     project: ProjectConfig | null;
@@ -153,7 +154,9 @@ export const ResourceList: React.FC<ResourceListProps> = ({
                         resources.map((r) => (
                             <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                                 <td className="whitespace-nowrap px-4 py-3 font-mono text-sm text-slate-600 dark:text-slate-300">
-                                    {r.id}
+                                    <Link href={`/resources/${r.id}`} className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline">
+                                        {r.id}
+                                    </Link>
                                 </td>
                                 <td className="px-4 py-3 text-sm text-slate-900 dark:text-slate-100 font-medium">
                                     {r.dct_title_s || <span className="text-slate-400 italic">Untitled</span>}
@@ -195,28 +198,5 @@ export const ResourceList: React.FC<ResourceListProps> = ({
                 onChange={setPage}
             />
         </div>
-    );
-};
-const SortHeader: React.FC<{
-    label: string;
-    column: string;
-    currentSort: string;
-    sortOrder: "asc" | "desc";
-    onClick: (col: string) => void;
-}> = ({ label, column, currentSort, sortOrder, onClick }) => {
-    return (
-        <th
-            className="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
-            onClick={() => onClick(column)}
-        >
-            <div className="flex items-center gap-1">
-                {label}
-                {currentSort === column && (
-                    <span className="text-indigo-600 dark:text-indigo-400">
-                        {sortOrder === "asc" ? "▲" : "▼"}
-                    </span>
-                )}
-            </div>
-        </th>
     );
 };
