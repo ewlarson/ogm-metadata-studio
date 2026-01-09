@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { Resource } from "../aardvark/model";
 import { searchResources, SearchResult } from "../duckdb/duckdbClient";
-import { ProjectConfig } from "../github/client";
+import { ProjectConfig } from "../services/GithubService";
 import { Pagination, SortHeader, TableContainer } from "./shared/Table";
 import { Link } from "./Link";
 

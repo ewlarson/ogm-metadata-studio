@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { Resource } from "../aardvark/model";
 import { default as pLimit } from "p-limit";
-import { generateStaticMap } from "../services/StaticMapService";
+import { StaticMapService } from "../services/StaticMapService";
 import { getStaticMap, upsertStaticMap } from "../duckdb/duckdbClient";
 
 // OSM Usage Policy: Be nice.
@@ -34,7 +34,8 @@ export function useStaticMapQueue() {
                     }
 
                     // 2. Generate
-                    const blob = await generateStaticMap(item.resource);
+                    const service = new StaticMapService(item.resource);
+                    const blob = await service.generate();
 
                     if (blob) {
                         // 3. Cache
