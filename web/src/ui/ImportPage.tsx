@@ -48,6 +48,14 @@ export const ImportPage: React.FC = () => {
                     const json = JSON.parse(text);
                     const count = await importJsonData(json);
                     totalRows += count;
+                } else if (file.name.endsWith(".duckdb")) {
+                    const { importDuckDbFile } = await import("../duckdb/duckdbClient");
+                    const res = await importDuckDbFile(file);
+                    if (!res.success) throw new Error(res.message);
+                    totalRows += res.count || 0;
+                    setStatus(`Database restored. Loaded ${res.count} items.`);
+                    return; // DB Restore is a full replacement, stop processing other files if mixed?
+                    // Actually, we can just continue, but usually restore is a standalone op.
                 } else {
                     const res = await importCsv(file);
                     if (!res.success) {
@@ -110,14 +118,14 @@ export const ImportPage: React.FC = () => {
 
             {mode === "local" && (
                 <div className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6 shadow-sm">
-                    <h2 className="text-lg font-semibold mb-4 text-slate-900 dark:text-slate-200">1. CSV / JSON Import</h2>
+                    <h2 className="text-lg font-semibold mb-4 text-slate-900 dark:text-slate-200">1. CSV / JSON / DuckDB Import</h2>
                     <p className="text-slate-500 dark:text-slate-400 mb-4 text-sm">
-                        Upload Aardvark-compliant CSV files or OGM Aardvark JSON files.
-                        Existing records with matching IDs will be updated.
+                        Upload Aardvark-compliant CSV files, OGM Aardvark JSON files, or a <b>.duckdb</b> backup file.
+                        Existing records with matching IDs will be updated (CSV/JSON) or replaced (DB Backup).
                     </p>
                     <input
                         type="file"
-                        accept=".csv,.json"
+                        accept=".csv,.json,.duckdb"
                         multiple
                         onChange={handleFileChange}
                         disabled={loading}

@@ -1917,3 +1917,73 @@ export async function getFacetValues(req: FacetValueRequest): Promise<FacetValue
     return { values: [], total: 0 };
   }
 }
+
+export async function importDuckDbFile(file: File): Promise<{ success: boolean, message: string, count?: number }> {
+  const ctx = await getDuckDbContext();
+  if (!ctx) return { success: false, message: "DB not initialized" };
+  const { db, conn } = ctx;
+
+  try {
+    // 1. Register File
+    await db.registerFileHandle(file.name, file, duckdb.DuckDBDataProtocol.BROWSER_FILEREADER, true);
+
+    // 2. Attach
+    // Use a safe alias
+    const alias = `import_${Date.now()}`;
+    await conn.query(`ATTACH '${file.name}' AS ${alias}`);
+
+    // 3. Transactional Swap
+    await conn.query("BEGIN TRANSACTION");
+
+    try {
+      // Truncate Main Tables
+      await conn.query("DELETE FROM resources");
+      await conn.query("DELETE FROM resources_mv");
+      await conn.query("DELETE FROM distributions");
+      await conn.query("DELETE FROM search_index");
+      await conn.query("DELETE FROM static_maps");
+
+
+      // Copy from Attached DB
+      // We assume the schema matches exactly for now.
+      // If the schema drifted, this might fail.
+      // A more robust way is to select specific columns, but * implies strict schema match.
+      await conn.query(`INSERT INTO resources SELECT * FROM ${alias}.resources`);
+      await conn.query(`INSERT INTO resources_mv SELECT * FROM ${alias}.resources_mv`);
+      await conn.query(`INSERT INTO distributions SELECT * FROM ${alias}.distributions`);
+      await conn.query(`INSERT INTO search_index SELECT * FROM ${alias}.search_index`);
+
+      // Static maps might be large, but we include them
+      // Check if static_maps exists in source FIRST?
+      // "DESCRIBE ${alias}.static_maps"
+      try {
+        await conn.query(`INSERT INTO static_maps SELECT * FROM ${alias}.static_maps`);
+      } catch (e) {
+        console.warn("Could not import static_maps (maybe missing in source?)", e);
+      }
+
+      await conn.query("COMMIT");
+    } catch (txErr) {
+      await conn.query("ROLLBACK");
+      throw txErr;
+    } finally {
+      // 4. Detach
+      await conn.query(`DETACH ${alias}`);
+      // Unregister?
+      // await db.flushFiles(); // Maybe?
+    }
+
+    // 5. Persist
+    await saveDb();
+
+    // Get count
+    const res = await conn.query("SELECT count(*) as c FROM resources");
+    const count = Number(res.toArray()[0].c);
+
+    return { success: true, message: `Database restored successfully.`, count };
+
+  } catch (err: any) {
+    console.error("Restore failed", err);
+    return { success: false, message: err.message || "Restore failed" };
+  }
+}
