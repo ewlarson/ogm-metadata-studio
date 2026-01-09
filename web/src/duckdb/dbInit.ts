@@ -3,7 +3,7 @@ import workerUrl from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url"
 import wasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import mvpWorkerUrl from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url";
 import mvpWasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
-import { SCALAR_FIELDS } from "../aardvark/model";
+import { ensureSchema } from "./schema";
 
 export const DB_FILENAME = "records.duckdb";
 export const INDEXEDDB_NAME = "aardvark-duckdb";
@@ -121,33 +121,6 @@ async function createDB(wUrl: string, waUrl: string): Promise<duckdb.AsyncDuckDB
         worker.terminate();
         throw err;
     }
-}
-
-async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
-    // resources table (scalars)
-    const scalarCols = SCALAR_FIELDS.map(f => `"${f}" VARCHAR`).join(", ");
-    await conn.query(`CREATE TABLE IF NOT EXISTS resources (${scalarCols}, geom GEOMETRY, embedding FLOAT[])`);
-
-    // Ensure geom column exists (migration)
-    const resInfo = await conn.query(`DESCRIBE resources`);
-    const resCols = resInfo.toArray().map((r: any) => r.column_name);
-    if (!resCols.includes('geom')) {
-        await conn.query(`ALTER TABLE resources ADD COLUMN geom GEOMETRY`);
-    }
-    if (!resCols.includes('embedding')) {
-        await conn.query(`ALTER TABLE resources ADD COLUMN embedding FLOAT[]`);
-    }
-
-    // resources_mv (multivalue)
-    await conn.query(`CREATE TABLE IF NOT EXISTS resources_mv (id VARCHAR, field VARCHAR, val VARCHAR)`);
-
-    // distributions
-    await conn.query(`CREATE TABLE IF NOT EXISTS distributions (resource_id VARCHAR, relation_key VARCHAR, url VARCHAR, label VARCHAR)`);
-
-    // resources_image_service(thumbnails)
-    await conn.query(`CREATE TABLE IF NOT EXISTS resources_image_service (id VARCHAR, data VARCHAR, last_updated UBIGINT)`);
-
-    // Backfill GEOMETRY from dcat_bbox if missing
 }
 
 // *** IndexedDB Helpers ***
