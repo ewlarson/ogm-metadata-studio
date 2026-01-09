@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { MapContainer, TileLayer, Rectangle, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Resource } from '../aardvark/model';
@@ -14,44 +14,44 @@ interface ResultsMapViewProps {
 // Component to handle auto-fit bounds
 import L from 'leaflet';
 
-const FitBounds: React.FC<{ bounds: LatLngBoundsExpression[] }> = ({ bounds }) => {
-    const map = useMap();
-    useEffect(() => {
-        if (bounds && bounds.length > 0) {
-            const group = L.featureGroup(bounds.map(b => L.rectangle(b as any)));
-            if (group.getBounds().isValid()) {
-                map.fitBounds(group.getBounds(), { padding: [50, 50] });
-            }
-        }
-    }, [bounds, map]);
-    return null;
-};
-
-const MapHighlighter: React.FC<{
+// Unified controller to handle both initial fit and highlighting interactions
+const MapController: React.FC<{
+    bounds: LatLngBoundsExpression[];
     highlightedId: string | null;
     features: { resource: Resource; bounds: LatLngBoundsExpression }[];
-}> = ({ highlightedId, features }) => {
+}> = ({ bounds, highlightedId, features }) => {
     const map = useMap();
 
     useEffect(() => {
-        if (!highlightedId) return;
-
-        const feature = features.find(f => f.resource.id === highlightedId);
-        if (feature) {
-            map.flyToBounds(feature.bounds as any, {
-                padding: [100, 100],
-                maxZoom: 8,
-                duration: 0.5
-            });
+        // If there is a highlighted ID, zoom to it
+        if (highlightedId) {
+            const feature = features.find(f => f.resource.id === highlightedId);
+            if (feature) {
+                map.flyToBounds(feature.bounds as any, {
+                    padding: [100, 100],
+                    maxZoom: 8,
+                    duration: 0.5
+                });
+            }
         }
-    }, [highlightedId, features, map]);
+        // If NO highlighted ID (hover leave), reset to all bounds
+        else if (bounds && bounds.length > 0) {
+            const group = L.featureGroup(bounds.map(b => L.rectangle(b as any)));
+            if (group.getBounds().isValid()) {
+                map.flyToBounds(group.getBounds(), {
+                    padding: [50, 50],
+                    duration: 0.5
+                });
+            }
+        }
+    }, [highlightedId, bounds, features, map]);
 
     return null;
 };
 
 export const ResultsMapView: React.FC<ResultsMapViewProps> = ({ resources, onEdit, onSelect, highlightedResourceId }) => {
-    // Parse BBoxes
-    const features = resources.map(r => {
+    // Parse BBoxes - Memoized to prevent re-calculation on every render (e.g. hover)
+    const features = useMemo(() => resources.map(r => {
         const bboxStr = r.dcat_bbox;
         if (!bboxStr) return null;
 
@@ -82,7 +82,7 @@ export const ResultsMapView: React.FC<ResultsMapViewProps> = ({ resources, onEdi
         ];
 
         return { resource: r, bounds };
-    }).filter(f => f !== null) as { resource: Resource; bounds: LatLngBoundsExpression }[];
+    }).filter(f => f !== null) as { resource: Resource; bounds: LatLngBoundsExpression }[], [resources]);
 
     if (features.length === 0) {
         return (
@@ -92,7 +92,7 @@ export const ResultsMapView: React.FC<ResultsMapViewProps> = ({ resources, onEdi
         );
     }
 
-    const allBounds = features.map(f => f.bounds);
+    const allBounds = useMemo(() => features.map(f => f.bounds), [features]);
 
     return (
         <div className="h-full w-full bg-slate-100 dark:bg-slate-900 relative z-0">
@@ -135,8 +135,7 @@ export const ResultsMapView: React.FC<ResultsMapViewProps> = ({ resources, onEdi
                     );
                 })}
 
-                <FitBounds bounds={allBounds} />
-                <MapHighlighter features={features} highlightedId={highlightedResourceId || null} />
+                <MapController bounds={allBounds} features={features} highlightedId={highlightedResourceId || null} />
             </MapContainer>
         </div>
     );
