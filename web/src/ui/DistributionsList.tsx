@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { queryDistributions, DistributionResult } from "../duckdb/duckdbClient";
 import { Pagination, SortHeader, TableContainer } from "./shared/Table";
+import { Link } from "./Link";
 
 interface DistributionsListProps {
     onEditResource: (id: string) => void;
@@ -100,7 +101,9 @@ export const DistributionsList: React.FC<DistributionsListProps> = ({ onEditReso
                         distributions.map((d, i) => (
                             <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                                 <td className="px-4 py-3 text-xs font-mono text-slate-600 dark:text-slate-400">
-                                    {d.resource_id}
+                                    <Link href={`/resources/${d.resource_id}`} className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline">
+                                        {d.resource_id}
+                                    </Link>
                                 </td>
                                 <td className="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">{d.dct_title_s || "-"}</td>
                                 <td className="px-4 py-3 text-xs text-slate-700 dark:text-slate-300">{d.relation_key}</td>
@@ -131,28 +134,5 @@ export const DistributionsList: React.FC<DistributionsListProps> = ({ onEditReso
                 onChange={setPage}
             />
         </div>
-    );
-};
-const SortHeader: React.FC<{
-    label: string;
-    column: string;
-    currentSort: string;
-    sortOrder: "asc" | "desc";
-    onClick: (col: string) => void;
-}> = ({ label, column, currentSort, sortOrder, onClick }) => {
-    return (
-        <th
-            className="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-colors"
-            onClick={() => onClick(column)}
-        >
-            <div className="flex items-center gap-1">
-                {label}
-                {currentSort === column && (
-                    <span className="text-indigo-600 dark:text-indigo-400">
-                        {sortOrder === "asc" ? "▲" : "▼"}
-                    </span>
-                )}
-            </div>
-        </th>
     );
 };
