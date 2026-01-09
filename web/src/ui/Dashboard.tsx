@@ -513,7 +513,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                             )}
                         </div>
                         {/* Map Column */}
-                        <div className="flex-1 sticky top-20 h-[calc(100vh-6rem)]">
+                        <div className="flex-1 sticky top-[88px] h-[calc(100vh-100px)]">
                             {loading ? (
                                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50/50 dark:bg-slate-900/50 backdrop-blur-sm z-10">Loading...</div>
                             ) : (
@@ -528,7 +528,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                         ) : state.view === 'gallery' ? (
                             <GalleryView resources={resources} thumbnails={thumbnails} onSelect={onSelect} />
                         ) : (
-                            <DashboardResultsList resources={resources} thumbnails={thumbnails} mapUrls={mapUrls} onSelect={onSelect} page={page} />
+                            <DashboardResultsList resources={resources} thumbnails={thumbnails} mapUrls={mapUrls} onSelect={onSelect} onAddFilter={(f, v) => toggleFacet(f, v, 'include')} page={page} />
                         )}
                     </div>
                 )}

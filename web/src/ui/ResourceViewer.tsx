@@ -1,4 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import L from 'leaflet';
+// @ts-ignore
+if (!window.L) window.L = L;
+
 import { Resource } from '../aardvark/model';
 
 
@@ -8,6 +12,9 @@ const DEFAULT_LEAFLET_OPTIONS = {
         'leaflet-viewer': {
             'error': 'The requested map layer could not be loaded.'
         }
+    },
+    LAYERS: {
+        DETECT_RETINA: true
     }
 };
 
@@ -223,7 +230,12 @@ export const ResourceViewer: React.FC<ResourceViewerProps> = ({ resource }) => {
         // GeoBlacklight `leaflet-viewer` controller expects specific data attributes
 
         // We need to pass the geometry if available
-        const geomAttr = geometry ? JSON.stringify(JSON.parse(geometry)) : undefined; // Ensure valid JSON string
+        let geomAttr: string | undefined;
+        try {
+            geomAttr = geometry ? JSON.stringify(JSON.parse(geometry)) : undefined; // Ensure valid JSON string
+        } catch (err) {
+            console.warn("ResourceViewer: Geometry is not valid JSON", geometry, err);
+        }
 
         return (
             <div className="mb-8 border border-gray-200 dark:border-slate-700 rounded-lg overflow-hidden relative z-0">
@@ -247,14 +259,11 @@ export const ResourceViewer: React.FC<ResourceViewerProps> = ({ resource }) => {
 };
 
 // Helper: Extract Geometry (BBox to Polygon or Centroid? GBL usually expects BBox as Polygon)
+
+// Helper: Extract Geometry (BBox to Polygon or Centroid? GBL usually expects BBox as Polygon)
 function getGeometry(resource: Resource): string | undefined {
-    // If we have actual locn_geometry (GeoJSON), use it
-    if (resource.locn_geometry) {
-        return resource.locn_geometry;
-    }
-    // If we have dcat_bbox ENVELOPE, convert to GeoJSON Polygon
-    if (resource.dcat_bbox) {
-        const envelopeMatch = resource.dcat_bbox.match(/ENVELOPE\s*\(\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*\)/i);
+    const parseEnvelope = (str: string): string | null => {
+        const envelopeMatch = str.match(/ENVELOPE\s*\(\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*\)/i);
         if (envelopeMatch) {
             const w = parseFloat(envelopeMatch[1]);
             const e = parseFloat(envelopeMatch[2]);
@@ -274,6 +283,27 @@ function getGeometry(resource: Resource): string | undefined {
             };
             return JSON.stringify(geojson);
         }
+        return null;
+    };
+
+    // 1. Try locn_geometry
+    if (resource.locn_geometry) {
+        // Is it JSON?
+        try {
+            JSON.parse(resource.locn_geometry);
+            return resource.locn_geometry;
+        } catch (e) {
+            // Not native JSON. Is it ENVELOPE?
+            const parsed = parseEnvelope(resource.locn_geometry);
+            if (parsed) return parsed;
+        }
     }
+
+    // 2. Try dcat_bbox (Usually ENVELOPE)
+    if (resource.dcat_bbox) {
+        const parsed = parseEnvelope(resource.dcat_bbox);
+        if (parsed) return parsed;
+    }
+
     return undefined;
 }

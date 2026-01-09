@@ -11,7 +11,32 @@ export { getDuckDbContext };
 export type { DuckDbContext };
 
 
-export async function zipResources(resources: Resource[]): Promise<Blob> {
+
+export async function generateParquet(resources: Resource[]): Promise<Uint8Array | null> {
+  const ctx = await getDuckDbContext();
+  if (!ctx) return null;
+  const { db, conn } = ctx;
+
+  const tempJson = `temp_export_${Date.now()}.json`;
+  const tempParquet = `temp_export_${Date.now()}.parquet`;
+
+  try {
+    await db.registerFileText(tempJson, JSON.stringify(resources));
+    await conn.query(`COPY (SELECT * FROM read_json_auto('${tempJson}')) TO '${tempParquet}' (FORMAT PARQUET)`);
+    const buffer = await db.copyFileToBuffer(tempParquet);
+
+    // Cleanup
+    await db.dropFile(tempJson);
+    await db.dropFile(tempParquet);
+
+    return buffer;
+  } catch (e) {
+    console.warn("Failed to generate parquet", e);
+    return null;
+  }
+}
+
+export async function zipResources(resources: Resource[], parquetBuffer: Uint8Array | null = null): Promise<Blob> {
   const zip = new JSZip();
   let count = 0;
   for (const res of resources) {
@@ -30,6 +55,12 @@ export async function zipResources(resources: Resource[]): Promise<Blob> {
     zip.file(`metadata-aardvark/${folder}/${res.id}.json`, JSON.stringify(json, null, 2));
     count++;
   }
+
+  if (parquetBuffer) {
+    zip.file(`metadata-aardvark/metadata.parquet`, parquetBuffer);
+    console.log("Added metadata.parquet to zip");
+  }
+
   console.log(`Zipped ${count} resources.`);
   return await zip.generateAsync({ type: "blob" });
 }
@@ -65,6 +96,7 @@ function csvResources(resources: Resource[]): Blob {
   const csvContent = [headerRow, ...rows].join("\n");
   return new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
 }
+
 
 async function fetchResourcesByIds(conn: duckdb.AsyncDuckDBConnection, ids: string[]): Promise<Resource[]> {
   if (ids.length === 0) return [];
@@ -148,6 +180,8 @@ async function fetchResourcesByIds(conn: duckdb.AsyncDuckDBConnection, ids: stri
   return ids.map(id => idMap.get(id)).filter(r => r !== undefined) as Resource[];
 }
 
+
+
 export async function upsertThumbnail(id: string, data: Blob): Promise<void> {
   const ctx = await getDuckDbContext();
   if (!ctx) return;
@@ -174,6 +208,8 @@ export async function upsertThumbnail(id: string, data: Blob): Promise<void> {
   }
 }
 
+
+
 export async function getThumbnail(id: string): Promise<string | null> {
   const ctx = await getDuckDbContext();
   if (!ctx) return null;
@@ -198,6 +234,8 @@ export async function getThumbnail(id: string): Promise<string | null> {
     return null;
   }
 }
+
+
 
 export function compileFacetedWhere(req: FacetedSearchRequest, omitField: string | null = null, emitGlobal: boolean = true): { sql: string } {
   const clauses: string[] = ["1=1"];
@@ -269,9 +307,11 @@ export function compileFacetedWhere(req: FacetedSearchRequest, omitField: string
   return { sql: clauses.join(" AND ") };
 }
 
+
 export async function exportAardvarkJsonZip(): Promise<Blob | null> {
   const resources = await queryResources();
-  return zipResources(resources);
+  const parquet = await generateParquet(resources);
+  return zipResources(resources, parquet);
 }
 
 export async function exportFilteredResults(req: FacetedSearchRequest, format: 'json' | 'csv'): Promise<Blob | null> {
@@ -291,7 +331,8 @@ export async function exportFilteredResults(req: FacetedSearchRequest, format: '
 
   // 3. Format
   if (format === 'json') {
-    return zipResources(resources);
+    const parquet = await generateParquet(resources);
+    return zipResources(resources, parquet);
   } else {
     return csvResources(resources);
   }
