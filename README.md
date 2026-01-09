@@ -13,7 +13,6 @@ Built with **React**, **Vite**, **DuckDB-WASM**, and **GitHub REST API**.
 *   **Faceted Search & Discovery**: Powerful faceted search UI (similar to GeoBlacklight) for exploring your metadata collection, powered by SQL `GROUP BY` and `ILIKE` logic.
 *   **Interactive Mapping**: Integrated Leaflet maps to visual bounding boxes (`dcat_bbox`) and spatial footprints.
 *   **Data Ingestion**: Import data from CSV or JSON sources, with automatic validation against the Aardvark schema constants.
-*   **Embeddings & AI**: (Experimental) Local Web Worker-based text embedding generation for semantic search capabilities.
 
 ## 🛠️ Architecture
 
@@ -28,7 +27,6 @@ Built with **React**, **Vite**, **DuckDB-WASM**, and **GitHub REST API**.
 ### Prerequisites
 
 *   Node.js (v18+)
-*   A GitHub Personal Access Token (PAT) with `repo` scope (for private repos) or public access.
 
 ### Installation
 
