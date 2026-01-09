@@ -219,19 +219,27 @@ function ensureMdVersion(data: AardvarkJson): void {
 }
 
 
+// Relaxed validation: Only ID is strictly required to exist.
 export function resourceFromJson(raw: AardvarkJson): Resource {
   ensureMdVersion(raw);
-  const missing = REQUIRED_FIELDS.filter(
-    (f) => raw[f] === undefined || raw[f] === null || raw[f] === ""
-  );
-  if (missing.length) {
-    throw new Error(`Missing required Aardvark fields: ${missing.join(", ")}`);
+
+  // Strict check only for ID
+  if (!raw["id"]) {
+    // If we are really separate, we could generate one, but generally for an OM like this, ID is essential.
+    // But let's be robust: if missing, generate a random one to allow the UI to render?
+    // No, let's keep ID strict for now as it's the primary key.
+    throw new Error(`Missing required field: id`);
   }
 
   const id = String(raw["id"]);
-  const title = String(raw["dct_title_s"]);
-  const access = String(raw["dct_accessRights_s"]);
-  const classes = (raw["gbl_resourceClass_sm"] as unknown[]) ?? [];
+  // Provide robust defaults for other "required" fields
+  const title = (raw["dct_title_s"] as string) || "[Untitled]";
+  const access = (raw["dct_accessRights_s"] as string) || "Public";
+
+  let classes = (raw["gbl_resourceClass_sm"] as unknown[]) ?? [];
+  if (classes.length === 0) {
+    classes = ["Other"];
+  }
 
   const modeledKeys = new Set([
     ...SCALAR_FIELDS,
