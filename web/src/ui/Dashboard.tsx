@@ -213,7 +213,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
             };
 
             const res = await facetedSearch(req);
-            setResources(res.results);
+            if (state.view === 'gallery' && page > 1) {
+                setResources(prev => [...prev, ...res.results]);
+            } else {
+                setResources(res.results);
+            }
+
             setFacetsData(res.facets);
             setTotal(res.total);
         } catch (err) {
@@ -221,7 +226,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
         } finally {
             setLoading(false);
         }
-    }, [q, activeFilters, page, state.sort, state.bbox]);
+    }, [q, activeFilters, page, state.sort, state.bbox, state.view]);
 
     useEffect(() => {
         fetchData();
@@ -523,10 +528,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                     </div>
                 ) : (
                     <div className="flex-1 overflow-y-auto p-4">
-                        {loading ? (
+                        {loading && resources.length === 0 ? (
                             <div className="flex h-64 items-center justify-center text-slate-500">Loading...</div>
                         ) : state.view === 'gallery' ? (
-                            <GalleryView resources={resources} thumbnails={thumbnails} onSelect={onSelect} />
+                            <>
+                                <GalleryView
+                                    resources={resources}
+                                    thumbnails={thumbnails}
+                                    onSelect={onSelect}
+                                    onLoadMore={() => !loading && setState(prev => ({ ...prev, page: prev.page + 1 }))}
+                                    hasMore={resources.length < total}
+                                />
+                                {loading && (
+                                    <div className="py-8 flex justify-center">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                                    </div>
+                                )}
+                            </>
                         ) : (
                             <DashboardResultsList resources={resources} thumbnails={thumbnails} mapUrls={mapUrls} onSelect={onSelect} onAddFilter={(f, v) => toggleFacet(f, v, 'include')} page={page} />
                         )}
@@ -534,7 +552,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                 )}
 
                 {/* Pagination */}
-                {totalPages > 1 && (
+                {totalPages > 1 && state.view !== 'gallery' && (
                     <div className="border-t border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-900 p-4 flex items-center justify-between">
                         <button
                             disabled={page <= 1}
