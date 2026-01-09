@@ -21,6 +21,7 @@ import { ToastProvider } from "./shared/ToastContext";
 export const App: React.FC = () => {
   // Local state only
   const [resourceCount, setResourceCount] = useState<number>(0);
+  const [resourceCountLoading, setResourceCountLoading] = useState(true);
 
   // URL State
   type ViewType = "dashboard" | "admin" | "edit" | "create" | "import" | "distributions" | "list" | "gallery" | "map" | "resource" | "resource_admin";
@@ -91,12 +92,15 @@ export const App: React.FC = () => {
 
   // Refresh resource count from DuckDB
   async function refreshResourceCount() {
+    setResourceCountLoading(true);
     try {
       const count = await countResources();
       setResourceCount(count);
     } catch (err) {
       console.error("Failed to refresh resource count from DuckDB", err);
       setResourceCount(0);
+    } finally {
+      setResourceCountLoading(false);
     }
   }
 
@@ -105,6 +109,13 @@ export const App: React.FC = () => {
     // Just refresh count, data loading is handled by DuckDB client internals
     refreshResourceCount();
   }, []);
+
+  // Redirect to import if empty
+  useEffect(() => {
+    if (!resourceCountLoading && resourceCount === 0 && view !== 'import') {
+      setUrlState({ view: 'import' });
+    }
+  }, [resourceCount, resourceCountLoading, view, setUrlState]);
 
   const handleCreate = useCallback((setView = true) => {
     const empty: Resource = {
@@ -397,7 +408,7 @@ export const App: React.FC = () => {
                     >
                       ← Back to Dashboard
                     </button>
-                    <ImportPage />
+                    <ImportPage resourceCount={resourceCount} />
                   </div>
                 )}
 
