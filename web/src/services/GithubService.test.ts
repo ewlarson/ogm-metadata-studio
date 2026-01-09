@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { GithubClient, GithubRepoRef } from './client';
+import { GithubService, GithubRepoRef } from './GithubService';
 
-describe('GithubClient', () => {
-    let client: GithubClient;
+describe('GithubService', () => {
+    let client: GithubService;
     const mockRepoRef: GithubRepoRef = {
         owner: 'test-owner',
         repo: 'test-repo',
@@ -13,7 +13,7 @@ describe('GithubClient', () => {
 
     beforeEach(() => {
         vi.stubGlobal('fetch', mockFetch);
-        client = new GithubClient({ token: 'fake-token' });
+        client = new GithubService({ token: 'fake-token' });
     });
 
     afterEach(() => {
@@ -26,7 +26,6 @@ describe('GithubClient', () => {
             json: async () => ({})
         });
 
-        // access private method via verifyRepoAndBranch which calls request
         await client.verifyRepoAndBranch(mockRepoRef);
 
         expect(mockFetch).toHaveBeenCalledWith(
@@ -59,17 +58,20 @@ describe('GithubClient', () => {
         const mockContent = "Hello World";
         const mockBase64 = btoa(mockContent);
 
+        // GithubBlob response structure
         mockFetch.mockResolvedValue({
             ok: true,
             json: async () => ({
                 content: mockBase64,
-                encoding: "base64"
+                encoding: "base64",
+                sha: 'some-sha',
+                size: 100,
+                url: 'http://foo',
+                node_id: '1'
             })
         });
 
-        // fetchBlob returns parsed JSON usually? 
-        // The implementation tries JSON.parse(utf8Str).
-        // So let's make the content valid JSON.
+        // The service method expects JSON content in the blob
         const jsonContent = JSON.stringify({ foo: "bar" });
         const jsonBase64 = btoa(jsonContent);
 
@@ -77,7 +79,11 @@ describe('GithubClient', () => {
             ok: true,
             json: async () => ({
                 content: jsonBase64,
-                encoding: "base64"
+                encoding: "base64",
+                sha: 'some-sha',
+                size: 100,
+                url: 'http://foo',
+                node_id: '1'
             })
         });
 
@@ -97,9 +103,11 @@ describe('GithubClient', () => {
             ok: true,
             json: async () => ({
                 tree: [
-                    { path: 'metadata', type: 'tree', sha: 'meta-sha' }
+                    { path: 'metadata', type: 'tree', sha: 'meta-sha', mode: '040000', url: '' }
                 ],
-                truncated: false
+                truncated: false,
+                sha: 'root-sha', // mocked response needs to match GithubTreeResponse
+                url: ''
             })
         });
 
@@ -108,9 +116,11 @@ describe('GithubClient', () => {
             ok: true,
             json: async () => ({
                 tree: [
-                    { path: 'file1.json', type: 'blob', sha: 'blob-sha' }
+                    { path: 'file1.json', type: 'blob', sha: 'blob-sha', mode: '100644', url: '' }
                 ],
-                truncated: false
+                truncated: false,
+                sha: 'meta-sha',
+                url: ''
             })
         });
 
