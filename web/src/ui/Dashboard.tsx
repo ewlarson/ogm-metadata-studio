@@ -1,11 +1,9 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { Resource } from "../aardvark/model";
-import {
-    FacetedSearchRequest, facetedSearch, exportFilteredResults
-} from "../duckdb/duckdbClient";
-import { useUrlState } from "../hooks/useUrlState";
+import React, { useEffect, useState, useMemo } from "react";
+import { FacetedSearchRequest } from "../duckdb/types";
+import { databaseService } from "../services/DatabaseService";
 import { useThumbnailQueue } from "../hooks/useThumbnailQueue";
 import { useStaticMapQueue } from "../hooks/useStaticMapQueue";
+import { useResourceSearch, FacetConfig } from "../hooks/useResourceSearch";
 import { GalleryView } from "./GalleryView";
 import { ResultsMapView } from "./ResultsMapView";
 import { DashboardResultsList } from "./DashboardResultsList";
@@ -22,7 +20,7 @@ interface DashboardProps {
     onSelect?: (id: string) => void;
 }
 
-const FACETS = [
+const FACETS: FacetConfig[] = [
     { field: "dct_spatial_sm", label: "Place", limit: 5 },
     { field: "gbl_resourceClass_sm", label: "Resource Class", limit: 5 },
     { field: "gbl_resourceType_sm", label: "Resource Type", limit: 5 },
@@ -37,10 +35,18 @@ const FACETS = [
 ];
 
 export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
-    const [resources, setResources] = useState<Resource[]>([]);
-    const [facetsData, setFacetsData] = useState<Record<string, { value: string; count: number }[]>>({});
-    const [total, setTotal] = useState(0);
-    const [loading, setLoading] = useState(true);
+    // Hook Usage
+    const {
+        resources,
+        facetsData,
+        total,
+        loading,
+        state,
+        setState,
+        activeFilters,
+        toggleFacet
+    } = useResourceSearch(FACETS);
+
     const [isExporting, setIsExporting] = useState(false);
     const [modalState, setModalState] = useState<{ field: string; label: string } | null>(null);
     const [hoveredResourceId, setHoveredResourceId] = useState<string | null>(null);
@@ -57,229 +63,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
         });
     }, [resources, register, registerStaticMap]);
 
-    // URL State Definition
-    interface DashboardState {
-        q: string;
-        page: number;
-        facets: Record<string, string[]>;
-        sort: string;
-        bbox: string | undefined; // "minX,minY,maxX,maxY"
-        yearRange: string | undefined; // "min,max"
-        view: 'list' | 'gallery' | 'map';
-    }
+    // Derived State
+    const currentBBox = useMemo(() => {
+        if (!state.bbox) return undefined;
+        const p = state.bbox.split(",").map(Number);
+        if (p.length === 4 && p.every(n => !isNaN(n))) return { minX: p[0], minY: p[1], maxX: p[2], maxY: p[3] };
+        return undefined;
+    }, [state.bbox]);
 
-    const [state, setState] = useUrlState<DashboardState>(
-        { q: "", page: 1, facets: {}, sort: "relevance", bbox: undefined, yearRange: undefined, view: 'list' },
-        {
-            toUrl: (s) => {
-                const params = new URLSearchParams();
-                if (s.q) params.set("q", s.q);
-                if (s.page > 1) params.set("page", String(s.page));
-                if (s.sort && s.sort !== "relevance") params.set("sort", s.sort);
-                if (s.bbox) params.set("bbox", s.bbox);
-                if (s.yearRange) params.set("yearRange", s.yearRange);
-                if (s.view && s.view !== 'list') params.set("view", s.view);
-
-                for (const [key, vals] of Object.entries(s.facets)) {
-                    if (key.startsWith("-")) {
-                        const field = key.substring(1);
-                        for (const v of vals) {
-                            params.append(`exclude_filters[${field}][]`, v);
-                        }
-                    } else {
-                        for (const v of vals) {
-                            params.append(`include_filters[${key}][]`, v);
-                        }
-                    }
-                }
-                return params;
-            },
-            fromUrl: (params) => {
-                const q = params.get("q") || "";
-                const page = Number(params.get("page")) || 1;
-                const sort = params.get("sort") || "relevance";
-                const bbox = params.get("bbox") || undefined;
-                const yearRange = params.get("yearRange") || undefined;
-                const viewParam = params.get("view");
-                const view = (viewParam === 'gallery' || viewParam === 'map') ? viewParam : 'list';
-
-                const facets: Record<string, string[]> = {};
-                for (const [key, val] of params.entries()) {
-                    // Match include_filters[field][]
-                    const includeMatch = key.match(/^include_filters\[([^\]]+)\]\[\]$/);
-                    if (includeMatch) {
-                        const field = includeMatch[1];
-                        if (!facets[field]) facets[field] = [];
-                        facets[field].push(val);
-                        continue;
-                    }
-
-                    // Match exclude_filters[field][]
-                    const excludeMatch = key.match(/^exclude_filters\[([^\]]+)\]\[\]$/);
-                    if (excludeMatch) {
-                        const field = excludeMatch[1];
-                        const internalKey = `-${field}`;
-                        if (!facets[internalKey]) facets[internalKey] = [];
-                        facets[internalKey].push(val);
-                        continue;
-                    }
-
-                    // Legacy f.field support for graceful migration (optional, but good for safety)
-                    if (key.startsWith("f.")) {
-                        const field = key.substring(2).trim();
-                        if (!facets[field]) facets[field] = [];
-                        facets[field].push(val);
-                    }
-                }
-                return { q, page, facets, sort, bbox, yearRange, view };
-            },
-            cleanup: (params) => {
-                params.delete("q");
-                params.delete("page");
-                params.delete("sort");
-                params.delete("bbox");
-                params.delete("yearRange");
-                params.delete("view");
-                const keysToDelete: string[] = [];
-                for (const key of params.keys()) {
-                    if (key.startsWith("include_filters") || key.startsWith("exclude_filters") || key.startsWith("f.")) {
-                        keysToDelete.push(key);
-                    }
-                }
-                keysToDelete.forEach(k => params.delete(k));
-            }
-        }
-    );
-
-    const { q, page, facets: selectedFacets } = state;
-
-
-    const pageSize = 20;
-
-    const activeFilters = React.useMemo(() => {
-        const filters: Record<string, any> = {};
-        for (const [key, values] of Object.entries(selectedFacets)) {
-            if (values.length > 0) {
-                if (key.startsWith("-")) {
-                    const field = key.substring(1);
-                    if (!filters[field]) filters[field] = {};
-                    filters[field].none = values;
-                } else {
-                    if (!filters[key]) filters[key] = {};
-                    filters[key].any = values;
-                }
-            }
-        }
-        if (state.yearRange) {
-            const parts = state.yearRange.split(",").map(Number);
-            if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-                filters['gbl_indexYear_im'] = { ...filters['gbl_indexYear_im'], gte: parts[0], lte: parts[1] };
-            }
-        }
-        return filters;
-    }, [selectedFacets, state.yearRange]);
-
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        try {
-            const filters = activeFilters;
-
-            let sortObj = { field: "dct_title_s", dir: "asc" } as any;
-            if (state.sort === "year_desc") sortObj = { field: "gbl_indexYear_im", dir: "desc" };
-            else if (state.sort === "year_asc") sortObj = { field: "gbl_indexYear_im", dir: "asc" };
-            else if (state.sort === "title_asc") sortObj = { field: "dct_title_s", dir: "asc" };
-            else if (state.sort === "title_desc") sortObj = { field: "dct_title_s", dir: "desc" };
-            else if (state.sort === "relevance") {
-                // Relevance = Title ASC fallback, relying on backend default if valid
-                sortObj = { field: "dct_title_s", dir: "asc" };
-            }
-
-            let bbox = undefined;
-            if (state.bbox) {
-                const parts = state.bbox.split(",").map(Number);
-                if (parts.length === 4 && parts.every(n => !isNaN(n))) {
-                    bbox = { minX: parts[0], minY: parts[1], maxX: parts[2], maxY: parts[3] };
-                }
-            }
-
-            const req: FacetedSearchRequest = {
-                q: q,
-                filters,
-                // Request limit + 1 to detect "More..."
-                facets: FACETS.map(f => ({ field: f.field, limit: f.limit + 1 })),
-                page: { size: pageSize, from: (page - 1) * pageSize },
-                sort: [sortObj],
-                bbox
-            };
-
-            const res = await facetedSearch(req);
-            if (state.view === 'gallery' && page > 1) {
-                setResources(prev => [...prev, ...res.results]);
-            } else {
-                setResources(res.results);
-            }
-
-            setFacetsData(res.facets);
-            setTotal(res.total);
-        } catch (err) {
-            console.error("Dashboard search failed", err);
-        } finally {
-            setLoading(false);
-        }
-    }, [q, activeFilters, page, state.sort, state.bbox, state.view]);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    const toggleFacet = (field: string, value: string, mode: 'include' | 'exclude' = 'include') => {
-        const key = mode === 'exclude' ? `-${field}` : field;
-        // Construct opposite key to ensure we don't have same value in both include and exclude
-        const oppositeKey = mode === 'exclude' ? field : `-${field}`;
-
-        setState(prev => {
-            const currentObj = { ...prev.facets };
-            const currentVals = currentObj[key] || [];
-
-            // Toggle value in target key
-            let newVals;
-            if (currentVals.includes(value)) {
-                newVals = currentVals.filter(v => v !== value);
-            } else {
-                newVals = [...currentVals, value];
-            }
-
-            if (newVals.length > 0) currentObj[key] = newVals;
-            else delete currentObj[key];
-
-            // Remove from opposite key if present
-            if (currentObj[oppositeKey] && currentObj[oppositeKey].includes(value)) {
-                const oppositeVals = currentObj[oppositeKey].filter(v => v !== value);
-                if (oppositeVals.length > 0) currentObj[oppositeKey] = oppositeVals;
-                else delete currentObj[oppositeKey];
-            }
-
-            return {
-                ...prev,
-                page: 1,
-                facets: currentObj
-            };
-        });
-    };
+    const currentYearRange = useMemo<[number, number] | undefined>(() => {
+        if (!state.yearRange) return undefined;
+        const p = state.yearRange.split(",").map(Number);
+        if (p.length === 2 && !isNaN(p[0]) && !isNaN(p[1])) return [p[0], p[1]];
+        return undefined;
+    }, [state.yearRange]);
 
     const handleExport = async (format: 'json' | 'csv') => {
         setIsExporting(true);
         try {
-            const filters = activeFilters;
             const req: FacetedSearchRequest = {
-                q: q,
-                filters,
+                q: state.q,
+                filters: activeFilters,
                 facets: [],
                 page: { size: 1000, from: 0 },
                 sort: [],
                 bbox: currentBBox // Reuse the parsed BBox
             };
-            const blob = await exportFilteredResults(req, format);
+            const blob = await databaseService.exportFilteredResults(req, format);
             if (!blob) throw new Error("Export yielded no data");
 
             const url = URL.createObjectURL(blob);
@@ -298,19 +108,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
         }
     };
 
+    const pageSize = 20;
     const totalPages = Math.ceil(total / pageSize);
-
-    const currentBBox = state.bbox ? (() => {
-        const p = state.bbox.split(",").map(Number);
-        if (p.length === 4 && p.every(n => !isNaN(n))) return { minX: p[0], minY: p[1], maxX: p[2], maxY: p[3] };
-        return undefined;
-    })() : undefined;
-
-    const currentYearRange = state.yearRange ? (() => {
-        const p = state.yearRange.split(",").map(Number);
-        if (p.length === 2 && !isNaN(p[0]) && !isNaN(p[1])) return [p[0], p[1]] as [number, number];
-        return undefined;
-    })() : undefined;
+    const { q, page, facets: selectedFacets, view } = state;
 
 
     return (
@@ -348,10 +148,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
 
                         const selectedValues = selectedFacets[f.field] || [];
                         const excludedValues = selectedFacets[`-${f.field}`] || [];
-
-                        // Pass down selection/data + defaultOpen logic
-                        // First 5 (index 0-4) default open, rest closed.
-                        // UNLESS active selection exists, then force open.
 
                         return (
                             <FacetSection
@@ -391,12 +187,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
             <div className="flex-1 flex flex-col min-w-0">
                 {/* Top Bar */}
                 <div className="z-10 relative border-b border-gray-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 p-4 flex flex-col gap-4 backdrop-blur-sm">
-                    {/* Top Bar removed inputs, now just counts/view toggle? */
-                        /* Actually we want the count and view toggle to remain. Input is gone. */
-                    }
+
                     <div className="flex items-center justify-between gap-4">
                         <div className="flex items-center gap-4 flex-shrink-0">
-                            {/* Breadcrumb or Active Filters could go here? For now just the count. */}
                             <span className="text-sm text-slate-500 dark:text-slate-400">
                                 Found <span className="text-slate-900 dark:text-white font-medium">{total}</span> results
                             </span>
@@ -406,7 +199,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                             <div className="flex bg-gray-100 dark:bg-slate-800 rounded-md p-0.5 border border-gray-200 dark:border-slate-700 mr-2">
                                 <button
                                     onClick={() => setState(prev => ({ ...prev, view: 'list' }))}
-                                    className={`px-2 py-1.5 rounded text-xs transition-colors ${state.view === 'list' || !state.view ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                                    className={`px-2 py-1.5 rounded text-xs transition-colors ${view === 'list' || !view ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                                     title="List View"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -415,7 +208,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                                 </button>
                                 <button
                                     onClick={() => setState(prev => ({ ...prev, view: 'gallery' }))}
-                                    className={`px-2 py-1.5 rounded text-xs transition-colors ${state.view === 'gallery' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                                    className={`px-2 py-1.5 rounded text-xs transition-colors ${view === 'gallery' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                                     title="Gallery View"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -424,7 +217,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                                 </button>
                                 <button
                                     onClick={() => setState(prev => ({ ...prev, view: 'map' }))}
-                                    className={`px-2 py-1.5 rounded text-xs transition-colors ${state.view === 'map' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                                    className={`px-2 py-1.5 rounded text-xs transition-colors ${view === 'map' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-400 font-medium' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                                     title="Map View"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -454,7 +247,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
 
                     {/* Active Filters */}
                     <ActiveFilterBar
-                        query={state.q}
+                        query={q}
                         facets={selectedFacets}
                         yearRange={state.yearRange}
                         onRemoveQuery={() => setState(prev => ({ ...prev, q: '', page: 1 }))}
@@ -472,8 +265,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                 </div>
 
                 {/* Results Grid/List/Map */}
-                {/* Results Grid/List/Map */}
-                {state.view === 'map' ? (
+                {view === 'map' ? (
                     <div className="flex-1 flex items-start">
                         {/* Condensed List Column */}
                         <div className="w-[32rem] flex-shrink-0 border-r border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 pb-20">
@@ -530,7 +322,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                     <div className="flex-1 overflow-y-auto p-4">
                         {loading && resources.length === 0 ? (
                             <div className="flex h-64 items-center justify-center text-slate-500">Loading...</div>
-                        ) : state.view === 'gallery' ? (
+                        ) : view === 'gallery' ? (
                             <>
                                 <GalleryView
                                     resources={resources}
@@ -552,7 +344,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                 )}
 
                 {/* Pagination */}
-                {totalPages > 1 && state.view !== 'gallery' && (
+                {totalPages > 1 && view !== 'gallery' && (
                     <div className="border-t border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-900 p-4 flex items-center justify-between">
                         <button
                             disabled={page <= 1}
@@ -580,13 +372,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
     );
 };
 
+// FacetSection component remains locally defined as it is display logic specific to DashboardSidebar behavior
 const FacetSection: React.FC<{
     field: string;
     label: string;
     data: { value: string; count: number }[];
     selectedValues: string[];
     excludedValues: string[];
-    onToggle: (type: string, value: string, mode: 'include' | 'exclude') => void;
+    onToggle: (field: string, value: string, mode: 'include' | 'exclude') => void;
     defaultOpen: boolean;
     onShowMore?: () => void;
 }> = ({ field, label, data, selectedValues, excludedValues, onToggle, defaultOpen, onShowMore }) => {

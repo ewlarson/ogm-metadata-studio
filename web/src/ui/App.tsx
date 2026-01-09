@@ -12,6 +12,8 @@ import { AutosuggestInput } from "./AutosuggestInput";
 import { ThemeToggle } from "./ThemeToggle";
 import { ResourceShow } from "./ResourceShow";
 import { ResourceAdmin } from "./ResourceAdmin";
+import { ErrorBoundary } from "./shared/ErrorBoundary";
+
 
 
 export const App: React.FC = () => {
@@ -320,84 +322,86 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1 p-6 w-full mx-auto flex flex-col min-h-0">
-        <div className="flex-1 flex flex-col min-h-0 space-y-6">
+      <ErrorBoundary>
+        <main className="flex-1 p-6 w-full mx-auto flex flex-col min-h-0">
+          <div className="flex-1 flex flex-col min-h-0 space-y-6">
 
-          <section className={`rounded-xl border border-gray-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/60 p-6 flex-1 flex flex-col min-h-0 shadow-sm dark:shadow-none backdrop-blur-sm ${view === 'map' ? '' : 'overflow-hidden'}`}>
-            {(view === "dashboard" || view === "list" || view === "gallery" || view === "map") && (
-              <div className="flex flex-col h-full -m-6">
-                <Dashboard
+            <section className={`rounded-xl border border-gray-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/60 p-6 flex-1 flex flex-col min-h-0 shadow-sm dark:shadow-none backdrop-blur-sm ${view === 'map' ? '' : 'overflow-hidden'}`}>
+              {(view === "dashboard" || view === "list" || view === "gallery" || view === "map") && (
+                <div className="flex flex-col h-full -m-6">
+                  <Dashboard
+                    onEdit={handleEditResource}
+                    onSelect={(id) => setUrlState({ view: 'resource', id })}
+                  />
+                </div>
+              )}
+
+              {view === "resource" && selectedId && (
+                <div className="-m-6 h-[calc(100%+3rem)]">
+                  <ResourceShow
+                    id={selectedId}
+                    onBack={() => setUrlState({ view: 'dashboard' })}
+                  />
+                </div>
+              )}
+
+              {view === "resource_admin" && selectedId && (
+                <div className="-m-6 h-[calc(100%+3rem)]">
+                  <ResourceAdmin
+                    id={selectedId}
+                    onBack={() => setUrlState({ view: 'resource', id: selectedId })}
+                  />
+                </div>
+              )}
+
+              {view === "admin" && (
+                <ResourceList
+                  project={null}
+                  resourceCount={resourceCount}
                   onEdit={handleEditResource}
-                  onSelect={(id) => setUrlState({ view: 'resource', id })}
+                  onCreate={() => handleCreate(true)}
                 />
-              </div>
-            )}
+              )}
 
-            {view === "resource" && selectedId && (
-              <div className="-m-6 h-[calc(100%+3rem)]">
-                <ResourceShow
-                  id={selectedId}
-                  onBack={() => setUrlState({ view: 'dashboard' })}
-                />
-              </div>
-            )}
+              {view === "distributions" && (
+                <div className="flex flex-col h-full">
+                  <DistributionsList onEditResource={handleEditResource} />
+                </div>
+              )}
 
-            {view === "resource_admin" && selectedId && (
-              <div className="-m-6 h-[calc(100%+3rem)]">
-                <ResourceAdmin
-                  id={selectedId}
-                  onBack={() => setUrlState({ view: 'resource', id: selectedId })}
-                />
-              </div>
-            )}
-
-            {view === "admin" && (
-              <ResourceList
-                project={null}
-                resourceCount={resourceCount}
-                onEdit={handleEditResource}
-                onCreate={() => handleCreate(true)}
-              />
-            )}
-
-            {view === "distributions" && (
-              <div className="flex flex-col h-full">
-                <DistributionsList onEditResource={handleEditResource} />
-              </div>
-            )}
-
-            {(view === "edit" || view === "create") && editing && (
-              <ResourceEdit
-                initialResource={editing}
-                initialDistributions={editingDistributions}
-                onSave={handleSave}
-                onCancel={() => {
-                  setUrlState({ view: "dashboard" });
-                  setEditing(null);
-                  setEditingDistributions([]);
-                }}
-                isSaving={isSaving}
-                saveError={saveError}
-              />
-            )}
-
-            {view === "import" && (
-              <div className="flex flex-col h-full">
-                <button
-                  onClick={() => {
+              {(view === "edit" || view === "create") && editing && (
+                <ResourceEdit
+                  initialResource={editing}
+                  initialDistributions={editingDistributions}
+                  onSave={handleSave}
+                  onCancel={() => {
                     setUrlState({ view: "dashboard" });
+                    setEditing(null);
+                    setEditingDistributions([]);
                   }}
-                  className="mb-4 self-start flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
-                >
-                  ← Back to Dashboard
-                </button>
-                <ImportPage />
-              </div>
-            )}
+                  isSaving={isSaving}
+                  saveError={saveError}
+                />
+              )}
 
-          </section>
-        </div>
-      </main >
+              {view === "import" && (
+                <div className="flex flex-col h-full">
+                  <button
+                    onClick={() => {
+                      setUrlState({ view: "dashboard" });
+                    }}
+                    className="mb-4 self-start flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
+                  >
+                    ← Back to Dashboard
+                  </button>
+                  <ImportPage />
+                </div>
+              )}
+
+            </section>
+          </div>
+        </main >
+      </ErrorBoundary>
     </div>
   );
 };
