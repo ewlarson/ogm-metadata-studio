@@ -55,3 +55,6 @@ records.duckdb
 .env
 .env.*
 !.env.example
+
+# Coverage
+web/coverage/*

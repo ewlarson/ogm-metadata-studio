@@ -201,7 +201,10 @@ export function buildDctReferencesS(
   for (const [key, dists] of grouped.entries()) {
     const isComplex = dists.length > 1 || dists.some(d => !!d.label);
     if (isComplex) {
-      refs[key] = dists.map(d => ({ url: d.url, label: d.label }));
+      refs[key] = dists.map(d => ({
+        url: d.url,
+        label: d.label
+      }));
     } else {
       refs[key] = dists[0].url;
     }

@@ -111,4 +111,65 @@ describe('ResourceList Component', () => {
             );
         }, { timeout: 1000 });
     });
+    it('handles sorting', async () => {
+        vi.mocked(duckdbClient.searchResources).mockResolvedValue({
+            resources: [FIXTURE_POINT],
+            total: 1
+        });
+
+        render(
+            <ResourceList
+                project={null}
+                resourceCount={1}
+                onEdit={mockOnEdit}
+                onCreate={mockOnCreate}
+            />
+        );
+
+        await waitFor(() => expect(screen.getByText('Title')).toBeDefined());
+
+        // Find SortHeader for Title and click it
+        // The table column header likely contains the text "Title"
+        fireEvent.click(screen.getByText('Title'));
+
+        await waitFor(() => {
+            expect(duckdbClient.searchResources).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.anything(),
+                'dct_title_s', // Sort field
+                'asc', // Direction
+                expect.anything()
+            );
+        });
+    });
+
+    it('handles pagination', async () => {
+        vi.mocked(duckdbClient.searchResources).mockResolvedValue({
+            resources: Array(20).fill(FIXTURE_POINT),
+            total: 30
+        });
+
+        render(
+            <ResourceList
+                project={null}
+                resourceCount={30}
+                onEdit={mockOnEdit}
+                onCreate={mockOnCreate}
+            />
+        );
+
+        await waitFor(() => expect(screen.getByText('Next')).toBeDefined());
+
+        fireEvent.click(screen.getByText('Next'));
+
+        await waitFor(() => {
+            expect(duckdbClient.searchResources).toHaveBeenCalledWith(
+                2, // page
+                20, // limit
+                expect.anything(),
+                expect.anything(),
+                expect.anything()
+            );
+        });
+    });
 });
