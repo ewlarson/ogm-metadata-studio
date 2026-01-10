@@ -16,6 +16,60 @@ import { ErrorBoundary } from "./shared/ErrorBoundary";
 import { ToastProvider } from "./shared/ToastContext";
 
 
+// URL State
+type ViewType = "dashboard" | "admin" | "edit" | "create" | "import" | "distributions" | "list" | "gallery" | "map" | "resource" | "resource_admin";
+interface AppState {
+  view: ViewType;
+  id?: string;
+}
+
+export const appUrlOptions = {
+  toUrl: (s: AppState) => {
+    const p = new URLSearchParams();
+    if (s.view !== "dashboard" && s.view !== "resource") p.set("view", s.view);
+    if (s.id && s.view !== "resource") p.set("id", s.id);
+    return p;
+  },
+  fromUrl: (p: URLSearchParams, pathname: string): AppState => {
+    // Check for /resources/:id/edit
+    const editMatch = pathname.match(/^\/resources\/([^/]+)\/edit$/);
+    if (editMatch) {
+      return { view: "edit", id: decodeURIComponent(editMatch[1]) };
+    }
+
+    // Check for /resources/:id/admin
+    const adminMatch = pathname.match(/^\/resources\/([^/]+)\/admin$/);
+    if (adminMatch) {
+      return { view: "resource_admin", id: decodeURIComponent(adminMatch[1]) };
+    }
+
+    // Check for /resources/:id
+    const resourceMatch = pathname.match(/^\/resources\/([^/]+)$/);
+    if (resourceMatch) {
+      return { view: "resource", id: decodeURIComponent(resourceMatch[1]) };
+    }
+
+    const view = (p.get("view") as ViewType) || "dashboard";
+    const id = p.get("id") || undefined;
+    return { view, id };
+  },
+  cleanup: (p: URLSearchParams) => {
+    p.delete("view");
+    p.delete("id");
+  },
+  path: (s: AppState) => {
+    if (s.view === "edit" && s.id) {
+      return `/resources/${encodeURIComponent(s.id)}/edit`;
+    }
+    if (s.view === "resource_admin" && s.id) {
+      return `/resources/${encodeURIComponent(s.id)}/admin`;
+    }
+    if (s.view === "resource" && s.id) {
+      return `/resources/${encodeURIComponent(s.id)}`;
+    }
+    return "/";
+  }
+};
 
 
 export const App: React.FC = () => {
@@ -24,61 +78,9 @@ export const App: React.FC = () => {
   const [resourceCountLoading, setResourceCountLoading] = useState(true);
 
   // URL State
-  type ViewType = "dashboard" | "admin" | "edit" | "create" | "import" | "distributions" | "list" | "gallery" | "map" | "resource" | "resource_admin";
-  interface AppState {
-    view: ViewType;
-    id?: string;
-  }
-
   const [urlState, setUrlState] = useUrlState<AppState>(
     { view: "dashboard" },
-    {
-      toUrl: (s) => {
-        const p = new URLSearchParams();
-        if (s.view !== "dashboard" && s.view !== "resource") p.set("view", s.view);
-        if (s.id && s.view !== "resource") p.set("id", s.id);
-        return p;
-      },
-      fromUrl: (p, pathname) => {
-        // Check for /resources/:id/edit
-        const editMatch = pathname.match(/^\/resources\/([^/]+)\/edit$/);
-        if (editMatch) {
-          return { view: "edit", id: decodeURIComponent(editMatch[1]) };
-        }
-
-        // Check for /resources/:id/admin
-        const adminMatch = pathname.match(/^\/resources\/([^/]+)\/admin$/);
-        if (adminMatch) {
-          return { view: "resource_admin", id: decodeURIComponent(adminMatch[1]) };
-        }
-
-        // Check for /resources/:id
-        const resourceMatch = pathname.match(/^\/resources\/([^/]+)$/);
-        if (resourceMatch) {
-          return { view: "resource", id: decodeURIComponent(resourceMatch[1]) };
-        }
-
-        const view = (p.get("view") as ViewType) || "dashboard";
-        const id = p.get("id") || undefined;
-        return { view, id };
-      },
-      cleanup: (p) => {
-        p.delete("view");
-        p.delete("id");
-      },
-      path: (s) => {
-        if (s.view === "edit" && s.id) {
-          return `/resources/${encodeURIComponent(s.id)}/edit`;
-        }
-        if (s.view === "resource_admin" && s.id) {
-          return `/resources/${encodeURIComponent(s.id)}/admin`;
-        }
-        if (s.view === "resource" && s.id) {
-          return `/resources/${encodeURIComponent(s.id)}`;
-        }
-        return "/";
-      }
-    }
+    appUrlOptions
   );
 
   const { view, id: selectedId } = urlState;

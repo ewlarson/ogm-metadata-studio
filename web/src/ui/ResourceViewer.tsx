@@ -135,6 +135,7 @@ export const ResourceViewer: React.FC<ResourceViewerProps> = ({ resource }) => {
                 <div
                     key={endpoint}
                     id="clover-viewer"
+                    data-testid="clover-viewer"
                     className="viewer h-[600px]"
                     data-controller="clover-viewer"
                     data-clover-viewer-protocol-value="IiifManifest"
@@ -161,6 +162,7 @@ export const ResourceViewer: React.FC<ResourceViewerProps> = ({ resource }) => {
                 <div
                     key={endpoint}
                     id="leaflet-viewer"
+                    data-testid="leaflet-viewer"
                     className="viewer h-[500px]"
                     data-controller="leaflet-viewer"
                     data-leaflet-viewer-available-value="true" // It is available
