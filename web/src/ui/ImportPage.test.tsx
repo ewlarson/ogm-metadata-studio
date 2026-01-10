@@ -1,74 +1,136 @@
-import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ImportPage } from './ImportPage';
-import * as duckdbClient from '../duckdb/duckdbClient';
+import * as duckdb from '../duckdb/duckdbClient';
 
 // Mock dependencies
 vi.mock('../duckdb/duckdbClient', () => ({
     importCsv: vi.fn(),
-    importJsonData: vi.fn(),
-    exportAardvarkJsonZip: vi.fn(),
     saveDb: vi.fn(),
-    exportDbBlob: vi.fn()
+    exportDbBlob: vi.fn(),
+    importJsonData: vi.fn(),
+    exportAardvarkJsonZip: vi.fn()
 }));
 
 vi.mock('./GithubImport', () => ({
-    GithubImport: () => <div>Github Import Component</div>
+    GithubImport: () => <div data-testid="github-import">Github Import Component</div>
 }));
 
-// Polyfill File.text
-if (!File.prototype.text) {
-    File.prototype.text = async function () {
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.readAsText(this);
-        });
-    };
-}
+// Mock URL.createObjectURL
+global.URL.createObjectURL = vi.fn(() => 'blob:url');
+global.URL.revokeObjectURL = vi.fn();
 
-describe('ImportPage Component', () => {
+describe('ImportPage', () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
-    it('renders welcome banner when no resources', () => {
+    it('renders welcome message when resourceCount is 0', () => {
         render(<ImportPage resourceCount={0} />);
-        expect(screen.getByText(/Welcome to Aardvark Metadata Studio/i)).toBeDefined();
+        expect(screen.getByText(/Welcome to Aardvark Metadata Studio/)).toBeDefined();
     });
 
-    it('renders tabs', () => {
-        render(<ImportPage resourceCount={10} />);
-        expect(screen.getByText('Local File Upload')).toBeDefined();
-        expect(screen.getByText('GitHub Import')).toBeDefined();
+    it('does not render welcome message when resources exist', () => {
+        render(<ImportPage resourceCount={5} />);
+        expect(screen.queryByText(/Welcome to Aardvark Metadata Studio/)).toBeNull();
     });
 
-    it('switches to Github tab', () => {
-        render(<ImportPage resourceCount={10} />);
+    it('switches tabs', () => {
+        render(<ImportPage />);
+
+        // Default Local
+        expect(screen.getByText('1. CSV / JSON / DuckDB Import')).toBeDefined();
+
+        // Switch to Github
         fireEvent.click(screen.getByText('GitHub Import'));
-        expect(screen.getByText('Github Import Component')).toBeDefined();
+        expect(screen.getByTestId('github-import')).toBeDefined();
+        expect(screen.queryByText('1. CSV / JSON / DuckDB Import')).toBeNull();
+
+        // Switch back
+        fireEvent.click(screen.getByText('Local File Upload'));
+        expect(screen.getByText('1. CSV / JSON / DuckDB Import')).toBeDefined();
     });
 
     it('handles JSON import', async () => {
-        const { container } = render(<ImportPage resourceCount={10} />);
+        vi.mocked(duckdb.importJsonData).mockResolvedValue(10);
+
+        const { container } = render(<ImportPage />);
 
         const input = container.querySelector('input[type="file"]');
         expect(input).toBeDefined();
 
         const file = new File(['{"id":"1"}'], 'test.json', { type: 'application/json' });
-        // @ts-ignore
-        fireEvent.change(input, { target: { files: [file] } });
+        // Mock text() method as it might not be implemented in jsdom perfectly or standard File ctor
+        Object.defineProperty(file, 'text', {
+            value: vi.fn().mockResolvedValue('{"id":"1"}')
+        });
+
+        fireEvent.change(input!, { target: { files: [file] } });
 
         await waitFor(() => {
-            expect(duckdbClient.importJsonData).toHaveBeenCalled();
+            expect(duckdb.importJsonData).toHaveBeenCalled();
+            expect(screen.getByText(/Import complete! Loaded 10 resources/)).toBeDefined();
         });
     });
 
-    it('triggers export', () => {
-        render(<ImportPage resourceCount={10} />);
-        const exportBtn = screen.getByText('Download JSON Zip');
-        fireEvent.click(exportBtn);
-        expect(duckdbClient.exportAardvarkJsonZip).toHaveBeenCalled();
+    it('handles CSV import', async () => {
+        vi.mocked(duckdb.importCsv).mockResolvedValue({ success: true, count: 5 });
+
+        const { container } = render(<ImportPage />);
+
+        const input = container.querySelector('input[type="file"]');
+        expect(input).toBeDefined();
+
+        const file = new File(['id,title'], 'test.csv', { type: 'text/csv' });
+        fireEvent.change(input!, { target: { files: [file] } });
+
+        await waitFor(() => {
+            expect(duckdb.importCsv).toHaveBeenCalled();
+            expect(screen.getByText(/Import complete! Loaded 5 resources/)).toBeDefined();
+        });
+    });
+
+    it('handles export JSON zip', async () => {
+        vi.mocked(duckdb.exportAardvarkJsonZip).mockResolvedValue(new Blob(['zip data']));
+
+        render(<ImportPage />);
+
+        const btn = screen.getByText('Download JSON Zip');
+        fireEvent.click(btn);
+
+        await waitFor(() => {
+            expect(duckdb.exportAardvarkJsonZip).toHaveBeenCalled();
+            expect(screen.getByText('JSON OGM Export downloaded.')).toBeDefined();
+        });
+    });
+
+    it('handles save DB', async () => {
+        vi.mocked(duckdb.exportDbBlob).mockResolvedValue(new Blob(['db data']));
+
+        render(<ImportPage />);
+
+        const btn = screen.getByText('Download records.duckdb');
+        fireEvent.click(btn);
+
+        await waitFor(() => {
+            expect(duckdb.saveDb).toHaveBeenCalled();
+            expect(duckdb.exportDbBlob).toHaveBeenCalled();
+            expect(screen.getByText(/Database downloaded/)).toBeDefined();
+        });
+    });
+
+    it('handles errors during import', async () => {
+        vi.mocked(duckdb.importCsv).mockResolvedValue({ success: false, message: 'Invalid CSV' });
+
+        const { container } = render(<ImportPage />);
+
+        const input = container.querySelector('input[type="file"]');
+        const file = new File(['bad'], 'bad.csv', { type: 'text/csv' });
+        fireEvent.change(input!, { target: { files: [file] } });
+
+        await waitFor(() => {
+            expect(screen.getByText(/Error:/)).toBeDefined();
+            expect(screen.getByText(/Invalid CSV/)).toBeDefined();
+        });
     });
 });

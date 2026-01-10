@@ -18,7 +18,7 @@ export const TabularEditor: React.FC<TabularEditorProps> = ({
 
   useEffect(() => {
     loadTableData();
-     
+
   }, []);
 
   async function loadTableData() {
@@ -74,34 +74,6 @@ export const TabularEditor: React.FC<TabularEditorProps> = ({
     }
   }
 
-  if (isLoading) {
-    return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-        <p className="text-xs text-slate-400">Loading table data from DuckDB...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-        <div className="rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-          {error}
-        </div>
-      </div>
-    );
-  }
-
-  if (columns.length === 0) {
-    return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
-        <p className="text-xs text-slate-400">
-          No resources found. Create a resource to see it in the table view.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
       <div className="flex items-center justify-between mb-3">
@@ -117,56 +89,75 @@ export const TabularEditor: React.FC<TabularEditorProps> = ({
           Refresh
         </button>
       </div>
-      <div className="overflow-x-auto">
-        <div className="inline-block min-w-full align-middle">
-          <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900/60">
-            <table className="min-w-full divide-y divide-slate-800 text-xs">
-              <thead className="bg-slate-900/80">
-                <tr>
-                  {columns.map((col) => (
-                    <th
-                      key={col}
-                      className="px-3 py-2 text-left font-semibold text-slate-400 uppercase tracking-wide text-[10px] whitespace-nowrap"
-                    >
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800 bg-slate-900/40">
-                {rows.map((row, idx) => (
-                  <tr
-                    key={idx}
-                    className="hover:bg-slate-800/60 cursor-pointer"
-                    onClick={() => {
-                      // Find the resource by ID
-                      const resourceId = row.id;
-                      if (resourceId) {
-                        queryResources().then((resources) => {
-                          const resource = resources.find((r) => r.id === resourceId);
-                          if (resource) {
-                            onSelectResource(resource);
-                          }
-                        });
-                      }
-                    }}
-                  >
+
+      {isLoading && (
+        <p className="text-xs text-slate-400">Loading table data from DuckDB...</p>
+      )}
+
+      {error && (
+        <div className="rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          {error}
+        </div>
+      )}
+
+      {!isLoading && !error && columns.length === 0 && (
+        <p className="text-xs text-slate-400">
+          No resources found. Create a resource to see it in the table view.
+        </p>
+      )}
+
+      {!isLoading && !error && columns.length > 0 && (
+        <div className="overflow-x-auto">
+          <div className="inline-block min-w-full align-middle">
+            <div className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900/60">
+              <table className="min-w-full divide-y divide-slate-800 text-xs">
+                <thead className="bg-slate-900/80">
+                  <tr>
                     {columns.map((col) => (
-                      <td
+                      <th
                         key={col}
-                        className="px-3 py-2 text-[11px] text-slate-200 max-w-xs truncate"
-                        title={String(row[col] || "")}
+                        className="px-3 py-2 text-left font-semibold text-slate-400 uppercase tracking-wide text-[10px] whitespace-nowrap"
                       >
-                        {String(row[col] || "")}
-                      </td>
+                        {col}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-800 bg-slate-900/40">
+                  {rows.map((row, idx) => (
+                    <tr
+                      key={idx}
+                      className="hover:bg-slate-800/60 cursor-pointer"
+                      onClick={() => {
+                        // Find the resource by ID
+                        const resourceId = row.id;
+                        if (resourceId) {
+                          queryResources().then((resources) => {
+                            const resource = resources.find((r) => r.id === resourceId);
+                            if (resource) {
+                              onSelectResource(resource);
+                            }
+                          });
+                        }
+                      }}
+                    >
+                      {columns.map((col) => (
+                        <td
+                          key={col}
+                          className="px-3 py-2 text-[11px] text-slate-200 max-w-xs truncate"
+                          title={String(row[col] || "")}
+                        >
+                          {String(row[col] || "")}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

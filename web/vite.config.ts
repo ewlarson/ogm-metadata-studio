@@ -61,7 +61,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
-    setupFiles: "./src/setupTests.ts",
+    setupFiles: ["./src/setupTests.ts"],
     css: true,
     alias: {
       // Force source map generation for coverage

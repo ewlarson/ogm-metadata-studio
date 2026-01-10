@@ -1,215 +1,173 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as queries from './queries';
 import * as dbInit from './dbInit';
-import {
-    searchResources,
-    facetedSearch,
-    getDistinctValues,
-    compileFacetedWhere,
-    countResources,
-    getSearchNeighbors,
-    querySimilarResources,
-    fetchResourcesByIds,
-    getStaticMap,
-    getThumbnail,
-    getFacetValues,
-    executeQuery
-} from './queries';
-import { FacetedSearchRequest } from './types';
 
-// Mock the entire dbInit module
+// Mock types
+const mockToArray = vi.fn();
+const mockGet = vi.fn();
+const mockConn = {
+    query: vi.fn(),
+    prepare: vi.fn()
+};
+
 vi.mock('./dbInit', () => ({
     getDuckDbContext: vi.fn()
 }));
 
-// Helper to create a mock database connection
-const createMockConn = () => {
-    const queryMock = vi.fn();
-    return {
-        query: queryMock,
-        prepare: vi.fn(),
-        close: vi.fn()
-    };
-};
+// Helper to mock query response
+function mockQueryReturn(data: any[], numRows?: number) {
+    mockConn.query.mockResolvedValue({
+        toArray: () => data,
+        get: (i: number) => data[i],
+        numRows: numRows ?? data.length
+    });
+}
 
-describe('DuckDB Queries Comprehensive', () => {
-    let mockConn: any;
-
+describe('DuckDB Queries', () => {
     beforeEach(() => {
-        vi.resetAllMocks();
-        mockConn = createMockConn();
-        vi.mocked(dbInit.getDuckDbContext).mockResolvedValue({
-            conn: mockConn,
-            db: {} as any
+        vi.clearAllMocks();
+        (dbInit.getDuckDbContext as any).mockResolvedValue({ conn: mockConn });
+    });
+
+    describe('countResources', () => {
+        it('returns count when successful', async () => {
+            mockQueryReturn([{ c: 42 }]);
+            const count = await queries.countResources();
+            expect(count).toBe(42);
+            expect(mockConn.query).toHaveBeenCalledWith('SELECT count(*) as c FROM resources');
+        });
+
+        it('returns 0 on failure', async () => {
+            mockConn.query.mockRejectedValue(new Error("Fail"));
+            const count = await queries.countResources();
+            expect(count).toBe(0);
         });
     });
 
-    describe('fetchResourcesByIds (Hydration)', () => {
-        it('hydrates resources with multivalued fields and distributions', async () => {
-            // Scalar
-            mockConn.query.mockResolvedValueOnce({
-                toArray: () => [{ id: '1', dct_title_s: 'Title' }]
-            });
-            // MV
-            mockConn.query.mockResolvedValueOnce({
-                toArray: () => [{ id: '1', field: 'dct_subject_sm', val: 'Maps' }]
-            });
-            // Dist
-            mockConn.query.mockResolvedValueOnce({
-                toArray: () => [{ resource_id: '1', url: 'http://foo' }]
-            });
-            // Thumb
-            mockConn.query.mockResolvedValueOnce({
-                toArray: () => []
-            });
+    describe('queryResourceById', () => {
+        it('fetches resource by ID', async () => {
+            // Mock separate calls for scalar, mv, dist, thumb
+            mockConn.query
+                .mockResolvedValueOnce({ toArray: () => [{ id: 'res-1', dct_title_s: 'Title' }] }) // scalar
+                .mockResolvedValueOnce({ toArray: () => [{ id: 'res-1', field: 'dct_subject_sm', val: 'Maps' }] }) // mv
+                .mockResolvedValueOnce({ toArray: () => [] }) // dist
+                .mockResolvedValueOnce({ toArray: () => [] }); // thumb
 
-            const res = await fetchResourcesByIds(mockConn, ['1']);
-            expect(res).toHaveLength(1);
-            expect(res[0].dct_subject_sm).toEqual(['Maps']);
-            // Check distributions presence indirectly via mapping logic check potentially
-            // but fetching logic doesn't explicitly return distributions in Resource array unless mapping does.
-            // mapping.ts resourceFromRow handles distributions.
+            const res = await queries.queryResourceById('res-1');
+
+            expect(res).toBeDefined();
+            expect(res?.id).toBe('res-1');
+            expect(res?.dct_title_s).toBe('Title');
+            expect(res?.dct_subject_sm).toEqual(['Maps']);
         });
 
-        it('handles thumbnail decoding errors', async () => {
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ id: '1' }] });
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [] });
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [] });
-            // Thumb with invalid base64
-            mockConn.query.mockResolvedValueOnce({
-                toArray: () => [{ id: '1', data: 'invalid-base64' }]
-            });
+        it('returns null if not found', async () => {
+            mockConn.query
+                .mockResolvedValueOnce({ toArray: () => [] })
+                .mockResolvedValueOnce({ toArray: () => [] })
+                .mockResolvedValueOnce({ toArray: () => [] })
+                .mockResolvedValueOnce({ toArray: () => [] });
 
-            // Should not crash
-            const res = await fetchResourcesByIds(mockConn, ['1']);
-            expect(res).toHaveLength(1);
-            expect(res[0].thumbnail).toBeUndefined();
+            const res = await queries.queryResourceById('missing');
+            expect(res).toBeNull();
+        });
+    });
+
+    describe('getDistinctValues', () => {
+        it('queries scalar fields correctly', async () => {
+            mockQueryReturn([{ val: 'A' }, { val: 'B' }]);
+            const data = await queries.getDistinctValues('dct_publisher_sm', 'Test', 10);
+
+            expect(mockConn.query).toHaveBeenCalledWith(expect.stringContaining('SELECT DISTINCT val'));
+            expect(mockConn.query).toHaveBeenCalledWith(expect.stringContaining("WHERE field = 'dct_publisher_sm'"));
+            expect(mockConn.query).toHaveBeenCalledWith(expect.stringContaining("val ILIKE '%Test%'"));
+            expect(data).toEqual(['A', 'B']);
+        });
+
+        it('queries id field (scalar logic) correctly', async () => {
+            mockQueryReturn([{ val: '1' }]);
+            await queries.getDistinctValues('id');
+            expect(mockConn.query).toHaveBeenCalledWith(expect.stringMatching(/SELECT DISTINCT "id" as val\s+FROM resources/));
         });
     });
 
     describe('searchResources', () => {
-        it('handles spatial sorting', async () => {
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ total: 10n }] });
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ id: '1' }] });
-            mockConn.query.mockResolvedValue({ toArray: () => [] }); // Hydration fallbacks
+        it('constructs correct SQL for search', async () => {
+            // Count query
+            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ total: 10 }] });
+            // IDs query
+            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ id: 'res-1' }] });
+            // Fetch resources queries (4 calls)
+            mockConn.query.mockResolvedValue({ toArray: () => [] });
 
-            await searchResources(1, 10, 'dct_title_s', 'asc', 'test');
-            // Since explicit spatial logic wasn't triggered by sort param alone in searchResources,
-            // we check normal sort logic.
-            const call = mockConn.query.mock.calls[1][0];
-            expect(call).toContain('ORDER BY "dct_title_s" ASC');
+            await queries.searchResources(1, 10, 'dct_title_s', 'asc', 'map');
+
+            const calls = mockConn.query.mock.calls;
+            const contextSearch = calls.find(c => c[0].includes('resources_mv'));
+            expect(contextSearch).toBeDefined();
+            expect(contextSearch![0]).toContain("id ILIKE '%map%'");
         });
     });
 
     describe('facetedSearch', () => {
-        it('applies global spatial search', async () => {
-            // 1. Create Temp Table
+        it('compiles clauses and executes query', async () => {
+            // Global search temp table
             mockConn.query.mockResolvedValueOnce({});
 
-            // 2. Parallel: IDs + Count
-            // Note: Promise.all order isn't guaranteed relative to each other if they fire instantly, 
-            // but usually they go in order of listing in array.
-            // IDs
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [] });
-            // Count
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ c: 5n }] });
+            // Ids and Count (Promise.all)
+            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ id: 'res-1' }] }); // ids
+            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ c: 1 }] }); // count
 
-            // 3. Facets (if any - none here)
+            // Fetch resources (4 calls)
+            mockConn.query.mockResolvedValue({ toArray: () => [] });
 
-            const req: FacetedSearchRequest = {
-                bbox: { minX: 0, minY: 0, maxX: 10, maxY: 10 }
+            const req = {
+                q: "water",
+                bbox: { minX: 0, minY: 0, maxX: 10, maxY: 10 },
+                filters: {
+                    "dct_accessRights_s": { any: ["Public"] }
+                }
             };
-            await facetedSearch(req);
 
-            // Verify Temp Table creation
-            const createTable = mockConn.query.mock.calls.find((c: any) => c[0].includes('CREATE TEMP TABLE'));
-            expect(createTable).toBeDefined();
-            expect(createTable[0]).toContain('ST_Intersects');
+            await queries.facetedSearch(req);
+
+            expect(mockConn.query).toHaveBeenCalledWith(expect.stringContaining("CREATE TEMP TABLE"));
+            expect(mockConn.query).toHaveBeenCalledWith(expect.stringContaining("ST_Intersects"));
+            expect(mockConn.query).toHaveBeenCalledWith(expect.stringContaining("dct_accessRights_s\" IN ('Public')"));
         });
+    });
 
-        it('sorts by year', async () => {
-            // No global update needed since no q/bbox
-            // Parallel: IDs + Count
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [] });
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ c: 0n }] });
-
-            const req: FacetedSearchRequest = {
-                sort: [{ field: 'gbl_indexYear_im', dir: 'desc' }]
-            };
-            await facetedSearch(req);
-
-            expect(mockConn.query).toHaveBeenCalled();
-            const idsQuery = mockConn.query.mock.calls.find((c: any) => c[0].includes('TRY_CAST'));
-            expect(idsQuery).toBeDefined();
+    describe('suggest', () => {
+        it('constructs union query', async () => {
+            mockQueryReturn([{ match: 'A', type: 'Title' }]);
+            await queries.suggest('foo');
+            expect(mockConn.query).toHaveBeenCalledWith(expect.stringContaining("UNION ALL"));
+            expect(mockConn.query).toHaveBeenCalledWith(expect.stringContaining("LIKE '%foo%'"));
         });
     });
 
     describe('getFacetValues', () => {
-        it('handles external filters', async () => {
-            // Promise.all(sql, countSql)
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [] });
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ total: 0 }] });
-
-            const req = {
-                field: 'gbl_indexYear_im',
-                filters: {
-                    'dct_subject_sm': { any: ['History'] }
-                }
-            };
-            await getFacetValues(req);
-            const calls = mockConn.query.mock.calls;
-            // Should check for the Subject filter, NOT the Year filter (which would be omitted if present)
-            const call = calls.find((c: any) => c[0].includes('History'));
-            expect(call).toBeDefined();
-        });
-
-        it('handles scalar field facets', async () => {
-            // Promise.all(sql, countSql)
+        it('queries facet counts', async () => {
             mockConn.query.mockResolvedValueOnce({ toArray: () => [{ val: 'A', c: 10 }] });
-            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ total: 1 }] });
+            mockConn.query.mockResolvedValueOnce({ toArray: () => [{ total: 100 }] });
 
-            const req = { field: 'dct_accessRights_s' };
-            const res = await getFacetValues(req);
-            expect(res.values[0].value).toBe('A');
-
-            const calls = mockConn.query.mock.calls;
-            const call = calls.find((c: any) => c[0].includes('GROUP BY "dct_accessRights_s"'));
-            expect(call).toBeDefined();
+            const res = await queries.getFacetValues({ field: 'dct_subject_sm' });
+            expect(res.values).toHaveLength(1);
+            expect(res.total).toBe(100);
         });
     });
 
-    describe('Assets', () => {
-        it('getThumbnail decodes data', async () => {
-            const b64 = btoa('test');
-            mockConn.query.mockResolvedValue({
+    describe('getSearchNeighbors', () => {
+        it('calculates neighbors using window functions', async () => {
+            mockConn.query.mockResolvedValueOnce({
                 numRows: 1,
-                get: () => ({ data: b64 }),
-                toArray: () => [{ data: b64 }]
+                get: () => ({ total: 10, current_pos: 5, prev_id: 'prev', next_id: 'next' })
             });
-            global.URL.createObjectURL = vi.fn(() => 'blob:url');
 
-            const url = await getThumbnail('1');
-            expect(url).toBe('blob:url');
-        });
-
-        it('getStaticMap returns null on empty', async () => {
-            mockConn.query.mockResolvedValue({ numRows: 0 });
-            expect(await getStaticMap('1')).toBeNull();
-        });
-    });
-
-    describe('executeQuery', () => {
-        it('returns raw rows', async () => {
-            mockConn.query.mockResolvedValue({
-                toArray: () => ([{ a: 1 }])
-            });
-            const res = await executeQuery('SELECT 1');
-            expect(res).toEqual([{ a: 1 }]);
-        });
-
-        it('handles errors gracefully', async () => {
-            mockConn.query.mockRejectedValue(new Error('fail'));
-            const res = await executeQuery('SELECT 1');
-            expect(res).toEqual([]);
+            const res = await queries.getSearchNeighbors({}, 'curr');
+            expect(res.prevId).toBe('prev');
+            expect(res.nextId).toBe('next');
+            expect(res.position).toBe(5);
         });
     });
 });

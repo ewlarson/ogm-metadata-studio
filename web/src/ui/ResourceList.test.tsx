@@ -145,7 +145,10 @@ describe('ResourceList Component', () => {
 
     it('handles pagination', async () => {
         vi.mocked(duckdbClient.searchResources).mockResolvedValue({
-            resources: Array(20).fill(FIXTURE_POINT),
+            resources: Array.from({ length: 20 }, (_, i) => ({
+                ...FIXTURE_POINT,
+                id: `fixture-${i}`
+            })),
             total: 30
         });
 
