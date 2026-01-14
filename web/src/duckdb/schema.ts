@@ -34,12 +34,20 @@ export async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
     // 4. Image Service / Thumbnail Cache
     await conn.query(`CREATE TABLE IF NOT EXISTS ${IMAGE_SERVICE_TABLE} (id VARCHAR, data VARCHAR, last_updated UBIGINT)`);
 
+    // 5. Search Index (manual text blob for simple searches)
+    await conn.query(`CREATE TABLE IF NOT EXISTS search_index (id VARCHAR, content VARCHAR)`);
+
+    // 6. Static Maps Cache
+    await conn.query(`CREATE TABLE IF NOT EXISTS static_maps (id VARCHAR, data VARCHAR, last_updated UBIGINT)`);
+
     // Indexes (Optional but good for performance)
     // Note: DuckDB indexes are currently limited, but let's try creating one on ID
     try {
         await conn.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_resources_id ON ${RESOURCES_TABLE} (id)`);
         await conn.query(`CREATE INDEX IF NOT EXISTS idx_resources_mv_id ON ${RESOURCES_MV_TABLE} (id)`);
         await conn.query(`CREATE INDEX IF NOT EXISTS idx_resources_mv_field ON ${RESOURCES_MV_TABLE} (field)`);
+        await conn.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_search_index_id ON search_index (id)`);
+        await conn.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_static_maps_id ON static_maps (id)`);
     } catch (e) {
         console.warn("Index creation failed (might be not supported in this DuckDB WASM version)", e);
     }

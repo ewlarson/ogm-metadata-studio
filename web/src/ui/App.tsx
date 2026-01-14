@@ -13,69 +13,74 @@ import { ThemeToggle } from "./ThemeToggle";
 import { ResourceShow } from "./ResourceShow";
 import { ResourceAdmin } from "./ResourceAdmin";
 import { ErrorBoundary } from "./shared/ErrorBoundary";
+import { ToastProvider } from "./shared/ToastContext";
 
+
+// URL State
+type ViewType = "dashboard" | "admin" | "edit" | "create" | "import" | "distributions" | "list" | "gallery" | "map" | "resource" | "resource_admin";
+interface AppState {
+  view: ViewType;
+  id?: string;
+}
+
+export const appUrlOptions = {
+  toUrl: (s: AppState) => {
+    const p = new URLSearchParams();
+    if (s.view !== "dashboard" && s.view !== "resource") p.set("view", s.view);
+    if (s.id && s.view !== "resource") p.set("id", s.id);
+    return p;
+  },
+  fromUrl: (p: URLSearchParams, pathname: string): AppState => {
+    // Check for /resources/:id/edit
+    const editMatch = pathname.match(/^\/resources\/([^/]+)\/edit$/);
+    if (editMatch) {
+      return { view: "edit", id: decodeURIComponent(editMatch[1]) };
+    }
+
+    // Check for /resources/:id/admin
+    const adminMatch = pathname.match(/^\/resources\/([^/]+)\/admin$/);
+    if (adminMatch) {
+      return { view: "resource_admin", id: decodeURIComponent(adminMatch[1]) };
+    }
+
+    // Check for /resources/:id
+    const resourceMatch = pathname.match(/^\/resources\/([^/]+)$/);
+    if (resourceMatch) {
+      return { view: "resource", id: decodeURIComponent(resourceMatch[1]) };
+    }
+
+    const view = (p.get("view") as ViewType) || "dashboard";
+    const id = p.get("id") || undefined;
+    return { view, id };
+  },
+  cleanup: (p: URLSearchParams) => {
+    p.delete("view");
+    p.delete("id");
+  },
+  path: (s: AppState) => {
+    if (s.view === "edit" && s.id) {
+      return `/resources/${encodeURIComponent(s.id)}/edit`;
+    }
+    if (s.view === "resource_admin" && s.id) {
+      return `/resources/${encodeURIComponent(s.id)}/admin`;
+    }
+    if (s.view === "resource" && s.id) {
+      return `/resources/${encodeURIComponent(s.id)}`;
+    }
+    return "/";
+  }
+};
 
 
 export const App: React.FC = () => {
   // Local state only
   const [resourceCount, setResourceCount] = useState<number>(0);
+  const [resourceCountLoading, setResourceCountLoading] = useState(true);
 
   // URL State
-  type ViewType = "dashboard" | "admin" | "edit" | "create" | "import" | "distributions" | "list" | "gallery" | "map" | "resource" | "resource_admin";
-  interface AppState {
-    view: ViewType;
-    id?: string;
-  }
-
   const [urlState, setUrlState] = useUrlState<AppState>(
     { view: "dashboard" },
-    {
-      toUrl: (s) => {
-        const p = new URLSearchParams();
-        if (s.view !== "dashboard" && s.view !== "resource") p.set("view", s.view);
-        if (s.id && s.view !== "resource") p.set("id", s.id);
-        return p;
-      },
-      fromUrl: (p, pathname) => {
-        // Check for /resources/:id/edit
-        const editMatch = pathname.match(/^\/resources\/([^/]+)\/edit$/);
-        if (editMatch) {
-          return { view: "edit", id: decodeURIComponent(editMatch[1]) };
-        }
-
-        // Check for /resources/:id/admin
-        const adminMatch = pathname.match(/^\/resources\/([^/]+)\/admin$/);
-        if (adminMatch) {
-          return { view: "resource_admin", id: decodeURIComponent(adminMatch[1]) };
-        }
-
-        // Check for /resources/:id
-        const resourceMatch = pathname.match(/^\/resources\/([^/]+)$/);
-        if (resourceMatch) {
-          return { view: "resource", id: decodeURIComponent(resourceMatch[1]) };
-        }
-
-        const view = (p.get("view") as ViewType) || "dashboard";
-        const id = p.get("id") || undefined;
-        return { view, id };
-      },
-      cleanup: (p) => {
-        p.delete("view");
-        p.delete("id");
-      },
-      path: (s) => {
-        if (s.view === "edit" && s.id) {
-          return `/resources/${encodeURIComponent(s.id)}/edit`;
-        }
-        if (s.view === "resource_admin" && s.id) {
-          return `/resources/${encodeURIComponent(s.id)}/admin`;
-        }
-        if (s.view === "resource" && s.id) {
-          return `/resources/${encodeURIComponent(s.id)}`;
-        }
-        return "/";
-      }
-    }
+    appUrlOptions
   );
 
   const { view, id: selectedId } = urlState;
@@ -89,12 +94,15 @@ export const App: React.FC = () => {
 
   // Refresh resource count from DuckDB
   async function refreshResourceCount() {
+    setResourceCountLoading(true);
     try {
       const count = await countResources();
       setResourceCount(count);
     } catch (err) {
       console.error("Failed to refresh resource count from DuckDB", err);
       setResourceCount(0);
+    } finally {
+      setResourceCountLoading(false);
     }
   }
 
@@ -103,6 +111,13 @@ export const App: React.FC = () => {
     // Just refresh count, data loading is handled by DuckDB client internals
     refreshResourceCount();
   }, []);
+
+  // Redirect to import if empty
+  useEffect(() => {
+    if (!resourceCountLoading && resourceCount === 0 && view !== 'import') {
+      setUrlState({ view: 'import' });
+    }
+  }, [resourceCount, resourceCountLoading, view, setUrlState]);
 
   const handleCreate = useCallback((setView = true) => {
     const empty: Resource = {
@@ -323,84 +338,86 @@ export const App: React.FC = () => {
       </header>
 
       <ErrorBoundary>
-        <main className="flex-1 p-6 w-full mx-auto flex flex-col min-h-0">
-          <div className="flex-1 flex flex-col min-h-0 space-y-6">
+        <ToastProvider>
+          <main className="flex-1 p-6 w-full mx-auto flex flex-col min-h-0">
+            <div className="flex-1 flex flex-col min-h-0 space-y-6">
 
-            <section className={`rounded-xl border border-gray-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/60 p-6 flex-1 flex flex-col min-h-0 shadow-sm dark:shadow-none backdrop-blur-sm ${view === 'map' ? '' : 'overflow-hidden'}`}>
-              {(view === "dashboard" || view === "list" || view === "gallery" || view === "map") && (
-                <div className="flex flex-col h-full -m-6">
-                  <Dashboard
+              <section className={`rounded-xl border border-gray-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/60 p-6 flex-1 flex flex-col min-h-0 shadow-sm dark:shadow-none backdrop-blur-sm ${view === 'map' ? '' : 'overflow-hidden'}`}>
+                {(view === "dashboard" || view === "list" || view === "gallery" || view === "map") && (
+                  <div className="flex flex-col h-full -m-6">
+                    <Dashboard
+                      onEdit={handleEditResource}
+                      onSelect={(id) => setUrlState({ view: 'resource', id })}
+                    />
+                  </div>
+                )}
+
+                {view === "resource" && selectedId && (
+                  <div className="-m-6 h-[calc(100%+3rem)]">
+                    <ResourceShow
+                      id={selectedId}
+                      onBack={() => setUrlState({ view: 'dashboard' })}
+                    />
+                  </div>
+                )}
+
+                {view === "resource_admin" && selectedId && (
+                  <div className="-m-6 h-[calc(100%+3rem)]">
+                    <ResourceAdmin
+                      id={selectedId}
+                      onBack={() => setUrlState({ view: 'resource', id: selectedId })}
+                    />
+                  </div>
+                )}
+
+                {view === "admin" && (
+                  <ResourceList
+                    project={null}
+                    resourceCount={resourceCount}
                     onEdit={handleEditResource}
-                    onSelect={(id) => setUrlState({ view: 'resource', id })}
+                    onCreate={() => handleCreate(true)}
                   />
-                </div>
-              )}
+                )}
 
-              {view === "resource" && selectedId && (
-                <div className="-m-6 h-[calc(100%+3rem)]">
-                  <ResourceShow
-                    id={selectedId}
-                    onBack={() => setUrlState({ view: 'dashboard' })}
-                  />
-                </div>
-              )}
+                {view === "distributions" && (
+                  <div className="flex flex-col h-full">
+                    <DistributionsList onEditResource={handleEditResource} />
+                  </div>
+                )}
 
-              {view === "resource_admin" && selectedId && (
-                <div className="-m-6 h-[calc(100%+3rem)]">
-                  <ResourceAdmin
-                    id={selectedId}
-                    onBack={() => setUrlState({ view: 'resource', id: selectedId })}
-                  />
-                </div>
-              )}
-
-              {view === "admin" && (
-                <ResourceList
-                  project={null}
-                  resourceCount={resourceCount}
-                  onEdit={handleEditResource}
-                  onCreate={() => handleCreate(true)}
-                />
-              )}
-
-              {view === "distributions" && (
-                <div className="flex flex-col h-full">
-                  <DistributionsList onEditResource={handleEditResource} />
-                </div>
-              )}
-
-              {(view === "edit" || view === "create") && editing && (
-                <ResourceEdit
-                  initialResource={editing}
-                  initialDistributions={editingDistributions}
-                  onSave={handleSave}
-                  onCancel={() => {
-                    setUrlState({ view: "dashboard" });
-                    setEditing(null);
-                    setEditingDistributions([]);
-                  }}
-                  isSaving={isSaving}
-                  saveError={saveError}
-                />
-              )}
-
-              {view === "import" && (
-                <div className="flex flex-col h-full">
-                  <button
-                    onClick={() => {
+                {(view === "edit" || view === "create") && editing && (
+                  <ResourceEdit
+                    initialResource={editing}
+                    initialDistributions={editingDistributions}
+                    onSave={handleSave}
+                    onCancel={() => {
                       setUrlState({ view: "dashboard" });
+                      setEditing(null);
+                      setEditingDistributions([]);
                     }}
-                    className="mb-4 self-start flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
-                  >
-                    ← Back to Dashboard
-                  </button>
-                  <ImportPage />
-                </div>
-              )}
+                    isSaving={isSaving}
+                    saveError={saveError}
+                  />
+                )}
 
-            </section>
-          </div>
-        </main >
+                {view === "import" && (
+                  <div className="flex flex-col h-full">
+                    <button
+                      onClick={() => {
+                        setUrlState({ view: "dashboard" });
+                      }}
+                      className="mb-4 self-start flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
+                    >
+                      ← Back to Dashboard
+                    </button>
+                    <ImportPage resourceCount={resourceCount} />
+                  </div>
+                )}
+
+              </section>
+            </div>
+          </main >
+        </ToastProvider>
       </ErrorBoundary>
     </div>
   );

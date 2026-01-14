@@ -32,8 +32,8 @@ Built with **React**, **Vite**, **DuckDB-WASM**, and **GitHub REST API**.
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/ewlarson/gitcrud.git
-    cd gitcrud/web
+    git clone https://github.com/ewlarson/ogm-metadata-studio.git
+    cd ogm-metadata-studio/web
     ```
 
 2.  Install dependencies:
