@@ -8,16 +8,21 @@ import { ResourceSidebar } from './resource/ResourceSidebar';
 import { ResourceMetadata } from './resource/ResourceMetadata';
 import { ResourceHeader } from './resource/ResourceHeader';
 
+import { databaseService } from '../services/DatabaseService';
+import { useToast } from './shared/ToastContext';
+
+
 interface ResourceShowProps {
     id: string;
-    onBack?: () => void;
+    onBack: () => void;
 }
 
-export const ResourceShow: React.FC<ResourceShowProps> = ({ id }) => {
+export const ResourceShow: React.FC<ResourceShowProps> = ({ id, onBack }) => {
     const [resource, setResource] = useState<Resource | null>(null);
     const [similarResources, setSimilarResources] = useState<Resource[]>([]);
     const [loading, setLoading] = useState(true);
     const [pagination, setPagination] = useState<{ prevId?: string, nextId?: string, position: number, total: number }>({ position: 0, total: 0 });
+    const { addToast } = useToast();
 
     useEffect(() => {
         const load = async () => {
@@ -91,6 +96,21 @@ export const ResourceShow: React.FC<ResourceShowProps> = ({ id }) => {
         window.dispatchEvent(new PopStateEvent("popstate"));
     };
 
+    const handleDelete = async (resourceId: string) => {
+        if (!window.confirm("Are you sure you want to delete this resource? This action cannot be undone.")) {
+            return;
+        }
+
+        try {
+            await databaseService.deleteResource(resourceId);
+            addToast("Resource deleted successfully", "success");
+            onBack();
+        } catch (e) {
+            console.error("Failed to delete resource", e);
+            addToast("Failed to delete resource", "error");
+        }
+    };
+
     if (loading) {
         return <div className="p-8 text-center text-slate-500">Loading resource...</div>;
     }
@@ -105,6 +125,7 @@ export const ResourceShow: React.FC<ResourceShowProps> = ({ id }) => {
                 resource={resource}
                 pagination={pagination}
                 onNavigate={navigateToId}
+                onDelete={handleDelete}
             />
 
             {/* Resource Viewer */}

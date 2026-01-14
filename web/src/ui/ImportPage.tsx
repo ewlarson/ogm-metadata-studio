@@ -2,7 +2,11 @@ import React, { useState } from "react";
 import { importCsv, saveDb, exportDbBlob, importJsonData, exportAardvarkJsonZip } from "../duckdb/duckdbClient";
 import { GithubImport } from "./GithubImport";
 
-export const ImportPage: React.FC = () => {
+interface ImportPageProps {
+    resourceCount?: number;
+}
+
+export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0 }) => {
     const [status, setStatus] = useState<string>("");
     const [loading, setLoading] = useState(false);
     const [mode, setMode] = useState<"local" | "github">("local");
@@ -98,6 +102,16 @@ export const ImportPage: React.FC = () => {
 
     return (
         <div className="p-8 max-w-4xl mx-auto space-y-8">
+            {resourceCount === 0 && (
+                <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-8 text-white shadow-lg animate-fade-in-up">
+                    <h1 className="text-3xl font-bold mb-4">Welcome to Aardvark Metadata Studio!</h1>
+                    <p className="text-lg opacity-90 max-w-2xl">
+                        It looks like your database is empty. To get started, please import some data below.
+                        You can upload CSV/JSON files or connect a GitHub repository.
+                    </p>
+                </div>
+            )}
+
             <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Import Data</h1>
 
             {/* Tabs */}
