@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Resource } from '../aardvark/model';
 import { queryResourceById, querySimilarResources, getSearchNeighbors, FacetedSearchRequest } from '../duckdb/duckdbClient';
 import { ResourceViewer } from './ResourceViewer';
-import 'leaflet/dist/leaflet.css';
 import { SimilarResourcesCarousel } from './resource/SimilarResourcesCarousel';
 import { ResourceSidebar } from './resource/ResourceSidebar';
 import { ResourceMetadata } from './resource/ResourceMetadata';

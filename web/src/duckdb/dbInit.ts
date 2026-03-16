@@ -4,6 +4,7 @@ import wasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import mvpWorkerUrl from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url";
 import mvpWasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
 import { ensureSchema } from "./schema";
+import { backfillCentroidAndH3 } from "./backfill";
 
 export const DB_FILENAME = "records.duckdb";
 export const INDEXEDDB_NAME = "aardvark-duckdb";
@@ -86,6 +87,10 @@ export async function getDuckDbContext(): Promise<DuckDbContext | null> {
             }
 
             await ensureSchema(conn);
+            // Backfill centroid + H3 for existing resources so map hexagons show (non-blocking)
+            backfillCentroidAndH3().then(({ centroidFilled, h3Filled }) => {
+                if (h3Filled > 0) console.log(`[Backfill] Centroid/H3: ${h3Filled} resources updated for map hexagons.`);
+            }).catch((e) => console.warn("[Backfill] Failed:", e));
             return { db, conn };
         } catch (err: any) {
             console.error("DuckDB initialization failed", err);

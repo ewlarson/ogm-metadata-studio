@@ -48,3 +48,15 @@ export interface FacetValueResult {
     values: { value: string; count: number }[];
     total: number;
 }
+
+export interface MapH3Request {
+    bbox?: { minX: number; minY: number; maxX: number; maxY: number };
+    resolution: number; // 2–8
+    q?: string;
+    filters?: Record<string, any>;
+}
+
+export interface MapH3Response {
+    hexes: { h3: string; count: number }[];
+    globalCount?: number;
+}

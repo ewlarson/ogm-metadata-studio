@@ -1,19 +1,34 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { vi, describe, it, expect } from 'vitest';
+import { AuthProvider } from '../../auth/AuthContext';
 import { ResourceHeader } from './ResourceHeader';
 import { ResourceSidebar } from './ResourceSidebar';
 import { Resource } from '../../aardvark/model';
 
-// Mock dependencies
-vi.mock('react-leaflet', () => ({
-    MapContainer: ({ children }: any) => <div data-testid="map-container">{children}</div>,
-    TileLayer: () => <div data-testid="tile-layer" />,
-    Rectangle: () => <div data-testid="rectangle" />
+const renderWithAuth = (ui: React.ReactElement) => render(<AuthProvider>{ui}</AuthProvider>);
+
+vi.mock('maplibre-gl', () => ({
+    default: {
+        Map: function Map() {
+            return {
+                remove: vi.fn(),
+                on: vi.fn((_e: string, fn: () => void) => setTimeout(fn, 0)),
+                addSource: vi.fn(),
+                addLayer: vi.fn(),
+                fitBounds: vi.fn(),
+                addControl: vi.fn(),
+            };
+        },
+    },
 }));
 
 vi.mock('./CopyButton', () => ({
     CopyButton: ({ text }: { text: string }) => <button data-testid="copy-btn" onClick={() => { }}>Copy</button>
+}));
+
+vi.mock('../../auth/useAuth', () => ({
+    useAuth: () => ({ isSignedIn: true }),
 }));
 
 const FIXTURE_RES: Resource = {
@@ -40,7 +55,7 @@ describe('ResourceHeader', () => {
     };
 
     it('renders breadcrumbs and title', () => {
-        render(
+        renderWithAuth(
             <ResourceHeader
                 resource={FIXTURE_RES}
                 pagination={pagination}
@@ -48,7 +63,7 @@ describe('ResourceHeader', () => {
                 onDelete={mockOnDelete}
             />
         );
-        expect(screen.getByText('Test Resource')).toBeDefined();
+        expect(screen.getByText('Test Resource')).toBeInTheDocument();
         expect(screen.getByText('Map')).toBeDefined();
         expect(screen.getByText('Paper Map')).toBeDefined();
         expect(screen.getByText('USA')).toBeDefined();
@@ -57,7 +72,7 @@ describe('ResourceHeader', () => {
     });
 
     it('handles navigation', () => {
-        render(
+        renderWithAuth(
             <ResourceHeader
                 resource={FIXTURE_RES}
                 pagination={pagination}
@@ -73,7 +88,7 @@ describe('ResourceHeader', () => {
     });
 
     it('handles delete', () => {
-        render(
+        renderWithAuth(
             <ResourceHeader
                 resource={FIXTURE_RES}
                 pagination={pagination}
@@ -89,8 +104,7 @@ describe('ResourceHeader', () => {
 describe('ResourceSidebar', () => {
     it('renders map with bounds', () => {
         render(<ResourceSidebar resource={FIXTURE_RES} />);
-        expect(screen.getByTestId('map-container')).toBeDefined();
-        expect(screen.getByTestId('rectangle')).toBeDefined();
+        expect(screen.queryByText('No map extent available')).not.toBeInTheDocument();
     });
 
     it('renders download link', () => {
@@ -101,13 +115,13 @@ describe('ResourceSidebar', () => {
     it('renders citation', () => {
         render(<ResourceSidebar resource={FIXTURE_RES} />);
         // Citation: Creator A. (2020). Test Resource. Publisher B. window.location.href.
-        expect(screen.getByText(/Creator A/)).toBeDefined();
-        expect(screen.getByText(/Publisher B/)).toBeDefined();
+        expect(screen.getByText(/Creator A/)).toBeInTheDocument();
+        expect(screen.getByText(/Publisher B/)).toBeInTheDocument();
     });
 
     it('handles missing bbox gracefully', () => {
         const res = { ...FIXTURE_RES, dcat_bbox: undefined };
         render(<ResourceSidebar resource={res} />);
-        expect(screen.getByText('No map extent available')).toBeDefined();
+        expect(screen.getByText('No map extent available')).toBeInTheDocument();
     });
 });

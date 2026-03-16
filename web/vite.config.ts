@@ -1,9 +1,15 @@
 /// <reference types="vitest" />
+import path from "path";
+import { fileURLToPath } from "url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 // Vite config for a static React SPA suitable for GitHub Pages / Vercel.
 export default defineConfig({
+  // Load .env from the web/ directory (same folder as this config)
+  envDir: __dirname,
   plugins: [
     react(),
     // Plugin to set correct MIME type for WASM files
@@ -37,7 +43,8 @@ export default defineConfig({
       },
     },
   },
-  base: "./",
+  // Project pages are hosted under the repository name.
+  base: "/ogm-metadata-studio/",
   worker: {
     format: "es",
   },

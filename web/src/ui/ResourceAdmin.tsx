@@ -1,12 +1,69 @@
-import React, { useEffect, useState } from 'react';
+import React, { useLayoutEffect, useRef, useEffect, useState } from 'react';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { Resource } from '../aardvark/model';
 import { queryResourceById } from '../duckdb/duckdbClient';
-import { MapContainer, TileLayer, Rectangle } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import { LatLngBoundsExpression } from 'leaflet';
 import { Link } from './Link';
 
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+
+const MAP_STYLE = "https://demotiles.maplibre.org/style.json";
+
+const AdminStaticMap: React.FC<{ bounds: [[number, number], [number, number]] }> = ({ bounds }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const mapRef = useRef<maplibregl.Map | null>(null);
+
+    useLayoutEffect(() => {
+        if (mapRef.current) {
+            mapRef.current.remove();
+            mapRef.current = null;
+        }
+        if (!containerRef.current) return;
+        const map = new maplibregl.Map({
+            container: containerRef.current,
+            style: MAP_STYLE,
+            center: [(bounds[0][1] + bounds[1][1]) / 2, (bounds[0][0] + bounds[1][0]) / 2],
+            zoom: 4,
+            scrollZoom: false,
+            dragPan: false,
+            doubleClickZoom: false,
+        });
+        mapRef.current = map;
+        map.on('load', () => {
+            const [minY, minX] = bounds[0];
+            const [maxY, maxX] = bounds[1];
+            map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 20 });
+            map.addSource('bbox', {
+                type: 'geojson',
+                data: {
+                    type: 'Feature',
+                    properties: {},
+                    geometry: {
+                        type: 'Polygon',
+                        coordinates: [[[minX, minY], [maxX, minY], [maxX, maxY], [minX, maxY], [minX, minY]]],
+                    },
+                },
+            });
+            map.addLayer({
+                id: 'bbox-fill',
+                type: 'fill',
+                source: 'bbox',
+                paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.2 },
+            });
+            map.addLayer({
+                id: 'bbox-line',
+                type: 'line',
+                source: 'bbox',
+                paint: { 'line-color': '#3b82f6', 'line-width': 1 },
+            });
+        });
+        return () => {
+            mapRef.current?.remove();
+            mapRef.current = null;
+        };
+    }, [bounds]);
+    return <div ref={containerRef} className="h-full w-full" />;
+};
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 interface ResourceAdminProps {
@@ -70,11 +127,10 @@ export const ResourceAdmin: React.FC<ResourceAdminProps> = ({ id, onBack }) => {
         return <div className="p-8 text-center text-red-500">Resource not found: {id}</div>;
     }
 
-    // Parse Bounds for Mini Map (Copied from ResourceShow.tsx)
-    let bounds: LatLngBoundsExpression | null = null;
+    // Parse Bounds for Mini Map [[minY, minX], [maxY, maxX]]
+    let bounds: [[number, number], [number, number]] | null = null;
     if (resource.dcat_bbox) {
         const bboxStr = resource.dcat_bbox;
-        // Try ENVELOPE(minX, maxX, maxY, minY)
         const envelopeMatch = bboxStr.match(/ENVELOPE\s*\(\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*\)/i);
         if (envelopeMatch) {
             const minX = parseFloat(envelopeMatch[1]);
@@ -125,10 +181,7 @@ export const ResourceAdmin: React.FC<ResourceAdminProps> = ({ id, onBack }) => {
                     <h3 className="font-semibold mb-2 text-slate-900 dark:text-gray-100">Static Map</h3>
                     <div className="h-64 relative z-0 rounded border border-gray-200 dark:border-slate-600 overflow-hidden">
                         {bounds ? (
-                            <MapContainer bounds={bounds as any} className="h-full w-full" scrollWheelZoom={false} dragging={false} zoomControl={false} doubleClickZoom={false}>
-                                <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-                                <Rectangle bounds={bounds} pathOptions={{ color: '#3b82f6', weight: 1, fillOpacity: 0.2 }} />
-                            </MapContainer>
+                            <AdminStaticMap bounds={bounds} />
                         ) : (
                             <div className="h-full flex items-center justify-center text-slate-400 text-sm">No map extent available</div>
                         )}

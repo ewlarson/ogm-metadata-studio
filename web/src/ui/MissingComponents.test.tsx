@@ -7,12 +7,22 @@ import { GithubImport } from './GithubImport';
 import * as duckdb from '../duckdb/duckdbClient';
 import * as githubScannerHook from '../hooks/useGithubScanner';
 
-// Mocks
-vi.mock('react-leaflet', () => ({
-    MapContainer: ({ children }: any) => <div data-testid="map-container">{children}</div>,
-    TileLayer: () => <div>TileLayer</div>,
-    useMap: () => ({ fitBounds: vi.fn() }),
-    useMapEvents: () => ({ getBounds: () => ({ getWest: () => 0, getSouth: () => 0, getEast: () => 10, getNorth: () => 10 }) })
+vi.mock('maplibre-gl', () => ({
+    default: {
+        Map: function Map() {
+            return {
+                remove: vi.fn(),
+                on: vi.fn((event: string, fn: () => void) => { if (event === 'load') setTimeout(fn, 0); }),
+                addSource: vi.fn(),
+                addLayer: vi.fn(),
+                fitBounds: vi.fn(),
+                addControl: vi.fn(),
+                getBounds: () => ({ getWest: () => 0, getSouth: () => 0, getEast: () => 10, getNorth: () => 10 }),
+                isStyleLoaded: () => true,
+                once: () => {},
+            };
+        },
+    },
 }));
 
 vi.mock('../duckdb/duckdbClient', () => ({
@@ -46,12 +56,11 @@ describe('Missing Components Coverage', () => {
         it('renders map and handles search', () => {
             const onChange = vi.fn();
             render(<MapFacet onChange={onChange} />);
-            expect(screen.getByTestId('map-container')).toBeDefined();
+            expect(screen.getByText('Search Here')).toBeInTheDocument();
 
-            // Search Here button
             const btn = screen.getByText('Search Here');
             fireEvent.click(btn);
-            expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ minX: 0 }));
+            expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ minX: expect.any(Number) }));
         });
 
         it('renders clear button when bbox provided', () => {

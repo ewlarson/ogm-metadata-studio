@@ -6,6 +6,9 @@ export const RESOURCES_MV_TABLE = "resources_mv";
 export const DISTRIBUTIONS_TABLE = "distributions";
 export const IMAGE_SERVICE_TABLE = "resources_image_service";
 
+/** H3 index columns per resolution (2–8) for map hex aggregation. */
+export const H3_RES_COLUMNS = ["h3_res2", "h3_res3", "h3_res4", "h3_res5", "h3_res6", "h3_res7", "h3_res8"];
+
 export async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
     // 1. Resources Table (Scalars)
     // We treat all scalars as VARCHAR for flexibility, plus specific types where needed (geom, embedding)
@@ -23,6 +26,11 @@ export async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
     }
     if (!resCols.includes('embedding')) {
         await conn.query(`ALTER TABLE ${RESOURCES_TABLE} ADD COLUMN embedding FLOAT[]`);
+    }
+    for (const col of H3_RES_COLUMNS) {
+        if (!resCols.includes(col)) {
+            await conn.query(`ALTER TABLE ${RESOURCES_TABLE} ADD COLUMN "${col}" VARCHAR`);
+        }
     }
 
     // 2. Multivalue Table (EAV pattern for arrays)

@@ -4,7 +4,7 @@ import * as imprt from "../duckdb/import";
 import * as exprt from "../duckdb/export";
 import * as lifec from "../duckdb/lifecycle";
 import { getDuckDbContext } from "../duckdb/dbInit";
-import { FacetedSearchRequest, FacetedSearchResponse, SearchResult, SuggestResult, FacetValueRequest, FacetValueResult, DistributionResult } from "../duckdb/types";
+import { FacetedSearchRequest, FacetedSearchResponse, SearchResult, SuggestResult, FacetValueRequest, FacetValueResult, DistributionResult, MapH3Request, MapH3Response } from "../duckdb/types";
 import { Resource, Distribution, AardvarkJson } from "../aardvark/model";
 
 export class DatabaseService {
@@ -51,6 +51,10 @@ export class DatabaseService {
 
     async getSearchNeighbors(req: FacetedSearchRequest, currentId: string) {
         return queries.getSearchNeighbors(req, currentId);
+    }
+
+    async getMapH3(req: MapH3Request): Promise<MapH3Response> {
+        return queries.getMapH3(req);
     }
 
     async queryDistributions(page?: number, pageSize?: number, sortBy?: string, sortOrder?: "asc" | "desc", keyword?: string): Promise<DistributionResult> {

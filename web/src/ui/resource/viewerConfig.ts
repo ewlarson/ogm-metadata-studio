@@ -1,4 +1,5 @@
 import { Resource } from '../../aardvark/model';
+import { geoJsonToBounds } from '../viewers/maplibreBounds';
 
 export interface ViewerConfig {
     protocol: string;
@@ -52,6 +53,21 @@ export function getViewerGeometry(resource: Resource): string | undefined {
     }
 
     return undefined;
+}
+
+/** dcat_centroid format: GeoJSON Point {"type":"Point","coordinates":[lon,lat]}. */
+export function formatCentroid(lon: number, lat: number): string {
+    return JSON.stringify({ type: 'Point', coordinates: [lon, lat] });
+}
+
+/** Centroid [lon, lat] from resource geometry (locn_geometry or dcat_bbox), or null if none. */
+export function getCentroidFromGeometry(resource: Resource): [number, number] | null {
+    const geom = getViewerGeometry(resource);
+    if (!geom) return null;
+    const bounds = geoJsonToBounds(geom);
+    if (!bounds) return null;
+    const [[minX, minY], [maxX, maxY]] = bounds;
+    return [(minX + maxX) / 2, (minY + maxY) / 2];
 }
 
 export function detectViewerConfig(resource: Resource): ViewerConfig | null {

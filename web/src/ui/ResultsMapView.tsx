@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo } from 'react';
-import { MapContainer, TileLayer, Rectangle, Popup, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { Resource } from '../aardvark/model';
-import { LatLngBoundsExpression } from 'leaflet';
+
+const MAP_STYLE = "https://demotiles.maplibre.org/style.json";
 
 interface ResultsMapViewProps {
     resources: Resource[];
@@ -11,78 +12,174 @@ interface ResultsMapViewProps {
     highlightedResourceId?: string | null;
 }
 
-// Component to handle auto-fit bounds
-import L from 'leaflet';
+type BoundsLike = [[number, number], [number, number]];
 
-// Unified controller to handle both initial fit and highlighting interactions
-const MapController: React.FC<{
-    bounds: LatLngBoundsExpression[];
-    highlightedId: string | null;
-    features: { resource: Resource; bounds: LatLngBoundsExpression }[];
-}> = ({ bounds, highlightedId, features }) => {
-    const map = useMap();
+function parseBounds(bboxStr: string): BoundsLike | null {
+    const envelopeMatch = bboxStr.match(/ENVELOPE\s*\(\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*\)/i);
+    if (envelopeMatch) {
+        const minX = parseFloat(envelopeMatch[1]);
+        const maxX = parseFloat(envelopeMatch[2]);
+        const maxY = parseFloat(envelopeMatch[3]);
+        const minY = parseFloat(envelopeMatch[4]);
+        return [[minY, minX], [maxY, maxX]];
+    }
+    const parts = bboxStr.split(',').map(s => parseFloat(s.trim()));
+    if (parts.length === 4 && parts.every(n => !isNaN(n))) {
+        return [[parts[1], parts[0]], [parts[3], parts[2]]];
+    }
+    return null;
+}
+
+export const ResultsMapView: React.FC<ResultsMapViewProps> = ({
+    resources,
+    onEdit,
+    onSelect,
+    highlightedResourceId,
+}) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const mapRef = useRef<maplibregl.Map | null>(null);
+    const popupRef = useRef<maplibregl.Popup | null>(null);
+    const featuresRef = useRef<{ resource: Resource; bounds: BoundsLike }[]>([]);
+
+    const features = useMemo(() => resources.map(r => {
+        if (!r.dcat_bbox) return null;
+        const bounds = parseBounds(r.dcat_bbox);
+        if (!bounds) return null;
+        return { resource: r, bounds };
+    }).filter((f): f is { resource: Resource; bounds: BoundsLike } => f !== null), [resources]);
+
+    const geojson = useMemo(() => ({
+        type: 'FeatureCollection' as const,
+        features: features.map(f => ({
+            type: 'Feature' as const,
+            id: f.resource.id,
+            properties: { title: f.resource.dct_title_s },
+            geometry: {
+                type: 'Polygon' as const,
+                coordinates: [[
+                    [f.bounds[0][1], f.bounds[0][0]],
+                    [f.bounds[1][1], f.bounds[0][0]],
+                    [f.bounds[1][1], f.bounds[1][0]],
+                    [f.bounds[0][1], f.bounds[1][0]],
+                    [f.bounds[0][1], f.bounds[0][0]],
+                ]],
+            },
+        })),
+    }), [features]);
+
+    featuresRef.current = features;
+
+    useLayoutEffect(() => {
+        if (mapRef.current) {
+            popupRef.current?.remove();
+            mapRef.current.remove();
+            mapRef.current = null;
+        }
+        if (!containerRef.current || features.length === 0) return;
+
+        const map = new maplibregl.Map({
+            container: containerRef.current,
+            style: MAP_STYLE,
+            center: [0, 0],
+            zoom: 2,
+        });
+        mapRef.current = map;
+
+        map.on('load', () => {
+            map.addSource('bboxes', {
+                type: 'geojson',
+                data: geojson,
+                promoteId: 'id',
+            });
+            map.addLayer({
+                id: 'bboxes-fill',
+                type: 'fill',
+                source: 'bboxes',
+                paint: {
+                    'fill-color': ['case', ['boolean', ['feature-state', 'highlight'], false], '#f59e0b', '#6366f1'],
+                    'fill-opacity': ['case', ['boolean', ['feature-state', 'highlight'], false], 0.3, 0.1],
+                },
+            });
+            map.addLayer({
+                id: 'bboxes-line',
+                type: 'line',
+                source: 'bboxes',
+                paint: {
+                    'line-color': ['case', ['boolean', ['feature-state', 'highlight'], false], '#f59e0b', '#6366f1'],
+                    'line-width': ['case', ['boolean', ['feature-state', 'highlight'], false], 3, 1],
+                },
+            });
+
+            const allBounds = features.reduce(
+                (acc, f) => acc.extend([[f.bounds[0][1], f.bounds[0][0]], [f.bounds[1][1], f.bounds[1][0]]]),
+                new maplibregl.LngLatBounds()
+            );
+            if (allBounds.getWest() !== Infinity) map.fitBounds(allBounds, { padding: 50 });
+
+            map.on('click', 'bboxes-fill', (e) => {
+                const id = e.features?.[0]?.id != null ? String(e.features[0].id) : undefined;
+                if (!id) return;
+                onSelect?.(id);
+                const feat = featuresRef.current.find(f => f.resource.id === id);
+                if (!feat) return;
+                const popup = new maplibregl.Popup({ closeButton: true })
+                    .setLngLat(e.lngLat)
+                    .setHTML(
+                        `<div class="text-xs">
+                          <strong class="block mb-1">${escapeHtml(feat.resource.dct_title_s)}</strong>
+                          <span class="text-slate-500">${escapeHtml(id)}</span>
+                          <div class="mt-2 text-indigo-600 cursor-pointer hover:underline edit-link" data-id="${escapeHtml(id)}">Edit Record</div>
+                        </div>`
+                    )
+                    .addTo(map);
+                popupRef.current?.remove();
+                popupRef.current = popup;
+                popup.getElement()?.querySelector('.edit-link')?.addEventListener('click', () => {
+                    onEdit(id);
+                    popup.remove();
+                    popupRef.current = null;
+                });
+            });
+            map.getCanvas().style.cursor = 'pointer';
+        });
+        return () => {
+            popupRef.current?.remove();
+            popupRef.current = null;
+            mapRef.current?.remove();
+            mapRef.current = null;
+        };
+    }, [geojson, features.length]);
 
     useEffect(() => {
-        // If there is a highlighted ID, zoom to it
-        if (highlightedId) {
-            const feature = features.find(f => f.resource.id === highlightedId);
-            if (feature) {
-                map.flyToBounds(feature.bounds as any, {
-                    padding: [100, 100],
+        const map = mapRef.current;
+        if (!map || !map.getSource('bboxes')) return;
+        const source = map.getSource('bboxes') as maplibregl.GeoJSONSource;
+        if (!source) return;
+        featuresRef.current.forEach(f => {
+            map.setFeatureState({ source: 'bboxes', id: f.resource.id }, { highlight: f.resource.id === highlightedResourceId });
+        });
+    }, [highlightedResourceId, features]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !map.isStyleLoaded() || features.length === 0) return;
+            if (highlightedResourceId) {
+            const feat = features.find(f => f.resource.id === highlightedResourceId);
+            if (feat) {
+                map.fitBounds([[feat.bounds[0][1], feat.bounds[0][0]], [feat.bounds[1][1], feat.bounds[1][0]]], {
+                    padding: 100,
                     maxZoom: 8,
-                    duration: 0.5
+                    duration: 500,
                 });
             }
-        }
-        // If NO highlighted ID (hover leave), reset to all bounds
-        else if (bounds && bounds.length > 0) {
-            const group = L.featureGroup(bounds.map(b => L.rectangle(b as any)));
-            if (group.getBounds().isValid()) {
-                map.flyToBounds(group.getBounds(), {
-                    padding: [50, 50],
-                    duration: 0.5
-                });
-            }
-        }
-    }, [highlightedId, bounds, features, map]);
-
-    return null;
-};
-
-export const ResultsMapView: React.FC<ResultsMapViewProps> = ({ resources, onEdit, onSelect, highlightedResourceId }) => {
-    // Parse BBoxes - Memoized to prevent re-calculation on every render (e.g. hover)
-    const features = useMemo(() => resources.map(r => {
-        const bboxStr = r.dcat_bbox;
-        if (!bboxStr) return null;
-
-        let coords: [number, number, number, number] | null = null; // [minX, minY, maxX, maxY]
-
-        // Try ENVELOPE(minX, maxX, maxY, minY) - Standard Aardvark
-        const envelopeMatch = bboxStr.match(/ENVELOPE\s*\(\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*\)/i);
-        if (envelopeMatch) {
-            const minX = parseFloat(envelopeMatch[1]);
-            const maxX = parseFloat(envelopeMatch[2]);
-            const maxY = parseFloat(envelopeMatch[3]);
-            const minY = parseFloat(envelopeMatch[4]);
-            coords = [minX, minY, maxX, maxY];
         } else {
-            // Try CSV/Simple: minX,minY,maxX,maxY
-            const parts = bboxStr.split(',').map(s => parseFloat(s.trim()));
-            if (parts.length === 4 && parts.every(n => !isNaN(n))) {
-                coords = [parts[0], parts[1], parts[2], parts[3]];
-            }
+            const allBounds = features.reduce(
+                (acc, f) => acc.extend([[f.bounds[0][1], f.bounds[0][0]], [f.bounds[1][1], f.bounds[1][0]]]),
+                new maplibregl.LngLatBounds()
+            );
+            if (allBounds.getWest() !== Infinity) map.fitBounds(allBounds, { padding: 50, duration: 500 });
         }
-
-        if (!coords) return null;
-
-        // Leaflet Bounds: [[minY, minX], [maxY, maxX]] (SouthWest, NorthEast)
-        const bounds: LatLngBoundsExpression = [
-            [coords[1], coords[0]],
-            [coords[3], coords[2]]
-        ];
-
-        return { resource: r, bounds };
-    }).filter(f => f !== null) as { resource: Resource; bounds: LatLngBoundsExpression }[], [resources]);
+    }, [highlightedResourceId, features]);
 
     if (features.length === 0) {
         return (
@@ -92,51 +189,15 @@ export const ResultsMapView: React.FC<ResultsMapViewProps> = ({ resources, onEdi
         );
     }
 
-    const allBounds = useMemo(() => features.map(f => f.bounds), [features]);
-
     return (
         <div className="h-full w-full bg-slate-100 dark:bg-slate-900 relative z-0">
-            <MapContainer
-                center={[0, 0]}
-                zoom={2}
-                className="h-full w-full"
-                scrollWheelZoom={true}
-            >
-                <TileLayer
-                    url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                />
-
-                {features.map(f => {
-                    const isHighlighted = f.resource.id === highlightedResourceId;
-                    return (
-                        <Rectangle
-                            key={f.resource.id}
-                            bounds={f.bounds}
-                            pathOptions={{
-                                color: isHighlighted ? '#f59e0b' : '#6366f1', // Amber if highlighted, Indigo default
-                                weight: isHighlighted ? 3 : 1,
-                                fillOpacity: isHighlighted ? 0.3 : 0.1
-                            }}
-                            eventHandlers={{
-                                click: () => onSelect?.(f.resource.id)
-                            }}
-                        >
-                            <Popup>
-                                <div className="text-xs">
-                                    <strong className="block mb-1">{f.resource.dct_title_s}</strong>
-                                    <span className="text-slate-500">{f.resource.id}</span>
-                                    <div className="mt-2 text-indigo-600 cursor-pointer hover:underline" onClick={() => onEdit(f.resource.id)}>
-                                        Edit Record
-                                    </div>
-                                </div>
-                            </Popup>
-                        </Rectangle>
-                    );
-                })}
-
-                <MapController bounds={allBounds} features={features} highlightedId={highlightedResourceId || null} />
-            </MapContainer>
+            <div ref={containerRef} className="h-full w-full" />
         </div>
     );
 };
+
+function escapeHtml(s: string): string {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
