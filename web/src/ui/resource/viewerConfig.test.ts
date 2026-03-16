@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { detectViewerConfig, getViewerGeometry } from './viewerConfig';
+import { describe, it, expect, vi } from 'vitest';
+import { detectViewerConfig, getViewerGeometry, formatCentroid, getCentroidFromGeometry } from './viewerConfig';
 import { Resource } from '../../aardvark/model';
 
 describe('viewerConfig', () => {
@@ -140,6 +140,30 @@ describe('viewerConfig', () => {
         it('returns undefined if ENVELOPE is invalid', () => {
             const resource = { ...base, locn_geometry: 'INVALID' };
             expect(getViewerGeometry(resource)).toBeUndefined();
+        });
+    });
+
+    describe('formatCentroid', () => {
+        it('returns GeoJSON Point string', () => {
+            expect(formatCentroid(-88.5, 41.5)).toBe('{"type":"Point","coordinates":[-88.5,41.5]}');
+        });
+    });
+
+    describe('getCentroidFromGeometry', () => {
+        const base: Resource = { id: '1' } as Resource;
+
+        it('returns center from locn_geometry polygon', () => {
+            const resource = { ...base, locn_geometry: '{"type":"Polygon","coordinates":[[[0,0],[2,0],[2,2],[0,2],[0,0]]]}' };
+            expect(getCentroidFromGeometry(resource)).toEqual([1, 1]);
+        });
+
+        it('returns center from dcat_bbox ENVELOPE', () => {
+            const resource = { ...base, dcat_bbox: 'ENVELOPE(-10, 10, 20, -20)' };
+            expect(getCentroidFromGeometry(resource)).toEqual([0, 0]);
+        });
+
+        it('returns null when no geometry', () => {
+            expect(getCentroidFromGeometry(base)).toBeNull();
         });
     });
 });

@@ -1,8 +1,10 @@
 import { getDuckDbContext } from "./dbInit";
 import { saveDb } from "./lifecycle";
-import { upsertResource } from "./mutations";
+import { upsertResource, parseCentroidForH3 } from "./mutations";
 import { Resource, SCALAR_FIELDS, REPEATABLE_STRING_FIELDS, CSV_HEADER_MAPPING, REFERENCE_URI_MAPPING, Distribution } from "../aardvark/model";
 import * as duckdb from "@duckdb/duckdb-wasm";
+import { latLngToCell } from "h3-js";
+import { H3_RES_COLUMNS } from "./schema";
 
 export async function importCsv(file: File): Promise<{ success: boolean, message: string, count?: number }> {
     const ctx = await getDuckDbContext();
@@ -85,6 +87,44 @@ export async function importCsv(file: File): Promise<{ success: boolean, message
                 `);
             } catch (e) {
                 console.warn("Failed to populate geom from dcat_bbox", e);
+            }
+
+            // Populate dcat_centroid from bbox center where missing
+            try {
+                await conn.query(`
+                  UPDATE resources
+                  SET dcat_centroid = '{"type":"Point","coordinates":[' ||
+                    (CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[1] AS DOUBLE) + CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[2] AS DOUBLE)) / 2 || ',' ||
+                    (CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[3] AS DOUBLE) + CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[4] AS DOUBLE)) / 2 || ']}'
+                  WHERE dcat_bbox LIKE 'ENVELOPE(%'
+                  AND (dcat_centroid IS NULL OR trim(dcat_centroid) = '')
+                  AND id IN (SELECT "${idSource}" FROM ${tempTable})
+                `);
+            } catch (e) {
+                console.warn("Failed to populate dcat_centroid from bbox", e);
+            }
+
+            // H3 indices from centroid for batch
+            try {
+                const rows = await conn.query(`
+                  SELECT id, dcat_centroid FROM resources
+                  WHERE id IN (SELECT "${idSource}" FROM ${tempTable})
+                  AND dcat_centroid IS NOT NULL AND trim(dcat_centroid) != ''
+                `);
+                for (const row of rows.toArray() as { id: string; dcat_centroid: string }[]) {
+                    const centroid = parseCentroidForH3(row.dcat_centroid);
+                    if (!centroid) continue;
+                    const [lat, lng] = centroid;
+                    const updates = H3_RES_COLUMNS.map((col, i) => {
+                        const res = i + 2;
+                        const h3 = latLngToCell(lat, lng, res);
+                        return `"${col}" = '${h3.replace(/'/g, "''")}'`;
+                    });
+                    const safeId = row.id.replace(/'/g, "''");
+                    await conn.query(`UPDATE resources SET ${updates.join(", ")} WHERE id = '${safeId}'`);
+                }
+            } catch (e) {
+                console.warn("Failed to populate H3 from centroid in import", e);
             }
         }
 

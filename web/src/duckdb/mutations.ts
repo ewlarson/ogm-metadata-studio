@@ -3,6 +3,31 @@ import { saveDb } from "./lifecycle";
 import { Resource, Distribution, SCALAR_FIELDS, REPEATABLE_STRING_FIELDS } from "../aardvark/model";
 import { fetchResourcesByIds } from "./queries";
 import embeddingWorkerUrl from "../workers/embedding.worker?worker&url";
+import { getCentroidFromGeometry, formatCentroid } from "../ui/resource/viewerConfig";
+import { latLngToCell } from "h3-js";
+import { H3_RES_COLUMNS } from "./schema";
+
+/** Parse dcat_centroid (GeoJSON Point or "[lon,lat]") to [lat, lng] for h3-js, or null. */
+export function parseCentroidForH3(dcatCentroid: string | null | undefined): [number, number] | null {
+    if (!dcatCentroid || String(dcatCentroid).trim() === "") return null;
+    const s = String(dcatCentroid).trim();
+    try {
+        if (s.startsWith("[")) {
+            const arr = JSON.parse(s);
+            if (Array.isArray(arr) && arr.length >= 2 && typeof arr[0] === "number" && typeof arr[1] === "number") {
+                return [arr[1], arr[0]]; // [lon, lat] -> [lat, lng]
+            }
+        }
+        const obj = JSON.parse(s);
+        if (obj?.type === "Point" && Array.isArray(obj?.coordinates) && obj.coordinates.length >= 2) {
+            const [lon, lat] = obj.coordinates;
+            return [lat, lon];
+        }
+    } catch {
+        // ignore
+    }
+    return null;
+}
 
 // *** Image Service Mutations ***
 
@@ -78,6 +103,14 @@ export async function upsertResource(resource: Resource, distributions: Distribu
     await conn.query(`DELETE FROM resources_mv WHERE id = '${safeId}'`);
     await conn.query(`DELETE FROM distributions WHERE resource_id = '${safeId}'`);
 
+    // Populate centroid from geometry when missing
+    if (!resource.dcat_centroid || String(resource.dcat_centroid).trim() === "") {
+        const centroid = getCentroidFromGeometry(resource);
+        if (centroid) {
+            resource = { ...resource, dcat_centroid: formatCentroid(centroid[0], centroid[1]) };
+        }
+    }
+
     // Insert Scalars
     const scalarCols: string[] = [];
     const scalarVals: string[] = [];
@@ -111,6 +144,32 @@ export async function upsertResource(resource: Resource, distributions: Distribu
         `);
             } catch (e) {
                 console.warn("Failed to update geom in upsert", e);
+            }
+        } else if (resource.locn_geometry) {
+            try {
+                const safeGeom = String(resource.locn_geometry).replace(/'/g, "''");
+                await conn.query(`UPDATE resources SET geom = ST_GeomFromGeoJSON('${safeGeom}') WHERE id = '${safeId}'`);
+            } catch (e) {
+                console.warn("Failed to update geom from locn_geometry in upsert", e);
+            }
+        }
+
+        // H3 indices from centroid (res 2–8)
+        const centroid = parseCentroidForH3(resource.dcat_centroid);
+        if (centroid) {
+            const [lat, lng] = centroid;
+            const updates: string[] = [];
+            for (let i = 0; i < H3_RES_COLUMNS.length; i++) {
+                const res = i + 2;
+                const h3 = latLngToCell(lat, lng, res);
+                updates.push(`"${H3_RES_COLUMNS[i]}" = '${h3.replace(/'/g, "''")}'`);
+            }
+            if (updates.length > 0) {
+                try {
+                    await conn.query(`UPDATE resources SET ${updates.join(", ")} WHERE id = '${safeId}'`);
+                } catch (e) {
+                    console.warn("Failed to update H3 in upsert", e);
+                }
             }
         }
     }

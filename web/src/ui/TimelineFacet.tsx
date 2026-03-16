@@ -19,7 +19,7 @@ export const TimelineFacet: React.FC<TimelineFacetProps> = ({ data, range, onCha
     }, [data]);
 
     // Debounce reference
-    const debounceRef = React.useRef<NodeJS.Timeout>();
+    const debounceRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     if (chartData.length === 0) return null;
 

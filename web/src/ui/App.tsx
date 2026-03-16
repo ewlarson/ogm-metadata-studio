@@ -13,7 +13,9 @@ import { ThemeToggle } from "./ThemeToggle";
 import { ResourceShow } from "./ResourceShow";
 import { ResourceAdmin } from "./ResourceAdmin";
 import { ErrorBoundary } from "./shared/ErrorBoundary";
-import { ToastProvider } from "./shared/ToastContext";
+import { useToast } from "./shared/ToastContext";
+import { GoogleAuthButton } from "./GoogleAuthButton";
+import { useAuth } from "../auth/useAuth";
 
 
 // URL State
@@ -73,6 +75,9 @@ export const appUrlOptions = {
 
 
 export const App: React.FC = () => {
+  const { isSignedIn } = useAuth();
+  const { addToast } = useToast();
+
   // Local state only
   const [resourceCount, setResourceCount] = useState<number>(0);
   const [resourceCountLoading, setResourceCountLoading] = useState(true);
@@ -84,6 +89,13 @@ export const App: React.FC = () => {
   );
 
   const { view, id: selectedId } = urlState;
+
+  // When not signed in on a CRUD view, show the safe view (stable tree = no hook order warning)
+  const isCrudView = view === "edit" || view === "create" || view === "resource_admin";
+  const displayView = isCrudView && !isSignedIn
+    ? (view === "create" ? "dashboard" as const : "resource" as const)
+    : view;
+  const displayId = selectedId;
 
   const [editing, setEditing] = useState<Resource | null>(null);
   const [editingDistributions, setEditingDistributions] = useState<Distribution[]>([]);
@@ -119,7 +131,23 @@ export const App: React.FC = () => {
     }
   }, [resourceCount, resourceCountLoading, view, setUrlState]);
 
+  // Sync URL when we're displaying a different view due to auth (keeps URL bar correct)
+  useEffect(() => {
+    if (displayView !== view || (displayView === "resource" && displayId !== selectedId)) {
+      if (displayView === "dashboard") {
+        setUrlState({ view: "dashboard" });
+      } else if (displayView === "resource" && displayId) {
+        setUrlState({ view: "resource", id: displayId });
+      }
+      addToast("Sign in with Google to add or edit resources.", "info");
+    }
+  }, [displayView, view, displayId, selectedId, setUrlState, addToast]);
+
   const handleCreate = useCallback((setView = true) => {
+    if (!isSignedIn) {
+      addToast("Sign in with Google to add or edit resources.", "info");
+      return;
+    }
     const empty: Resource = {
       id: "",
       dct_title_s: "",
@@ -164,7 +192,7 @@ export const App: React.FC = () => {
     setEditingDistributions([]);
     if (setView) setUrlState({ view: "create" });
     setSaveError(null);
-  }, [setUrlState]);
+  }, [setUrlState, isSignedIn, addToast]);
 
   // Load resource if view is edit and we have ID but no data
   useEffect(() => {
@@ -212,10 +240,13 @@ export const App: React.FC = () => {
     }
   }
 
-  const handleEditResource = async (id: string) => {
-    // Just set URL, the effect will load data
+  const handleEditResource = useCallback(async (id: string) => {
+    if (!isSignedIn) {
+      addToast("Sign in with Google to add or edit resources.", "info");
+      return;
+    }
     setUrlState({ view: "edit", id });
-  };
+  }, [isSignedIn, addToast, setUrlState]);
 
 
 
@@ -262,6 +293,7 @@ export const App: React.FC = () => {
   };
 
   return (
+    <ErrorBoundary>
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-200">
       <header className="border-b border-gray-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 px-4 py-3 flex items-center justify-between backdrop-blur-sm sticky top-0 z-50">
         <div className="flex items-center gap-4 flex-1">
@@ -299,9 +331,8 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="text-right flex flex-col items-end gap-1 flex-shrink-0">
-
-          <div className="flex gap-2 mt-1 items-center">
+        <div className="text-right flex flex-col items-end gap-1 flex-shrink-0 min-w-0">
+          <div className="flex flex-wrap gap-2 mt-1 items-center justify-end">
 
             <button
               type="button"
@@ -332,18 +363,17 @@ export const App: React.FC = () => {
               Import / Export
             </button>
             <div className="w-[1px] h-6 bg-gray-300 dark:bg-slate-800 mx-1"></div>
+            <GoogleAuthButton />
             <ThemeToggle />
           </div>
         </div>
       </header>
 
-      <ErrorBoundary>
-        <ToastProvider>
-          <main className="flex-1 p-6 w-full mx-auto flex flex-col min-h-0">
+      <main className="flex-1 p-6 w-full mx-auto flex flex-col min-h-0">
             <div className="flex-1 flex flex-col min-h-0 space-y-6">
 
-              <section className={`rounded-xl border border-gray-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/60 p-6 flex-1 flex flex-col min-h-0 shadow-sm dark:shadow-none backdrop-blur-sm ${view === 'map' ? '' : 'overflow-hidden'}`}>
-                {(view === "dashboard" || view === "list" || view === "gallery" || view === "map") && (
+              <section className={`rounded-xl border border-gray-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/60 p-6 flex-1 flex flex-col min-h-0 shadow-sm dark:shadow-none backdrop-blur-sm ${displayView === 'map' ? '' : 'overflow-hidden'}`}>
+                {(displayView === "dashboard" || displayView === "list" || displayView === "gallery" || displayView === "map") && (
                   <div className="flex flex-col h-full -m-6">
                     <Dashboard
                       onEdit={handleEditResource}
@@ -352,25 +382,25 @@ export const App: React.FC = () => {
                   </div>
                 )}
 
-                {view === "resource" && selectedId && (
+                {displayView === "resource" && displayId && (
                   <div className="-m-6 h-[calc(100%+3rem)]">
                     <ResourceShow
-                      id={selectedId}
+                      id={displayId}
                       onBack={() => setUrlState({ view: 'dashboard' })}
                     />
                   </div>
                 )}
 
-                {view === "resource_admin" && selectedId && (
+                {displayView === "resource_admin" && displayId && isSignedIn && (
                   <div className="-m-6 h-[calc(100%+3rem)]">
                     <ResourceAdmin
-                      id={selectedId}
-                      onBack={() => setUrlState({ view: 'resource', id: selectedId })}
+                      id={displayId}
+                      onBack={() => setUrlState({ view: 'resource', id: displayId })}
                     />
                   </div>
                 )}
 
-                {view === "admin" && (
+                {displayView === "admin" && (
                   <ResourceList
                     project={null}
                     resourceCount={resourceCount}
@@ -379,13 +409,13 @@ export const App: React.FC = () => {
                   />
                 )}
 
-                {view === "distributions" && (
+                {displayView === "distributions" && (
                   <div className="flex flex-col h-full">
                     <DistributionsList onEditResource={handleEditResource} />
                   </div>
                 )}
 
-                {(view === "edit" || view === "create") && editing && (
+                {(displayView === "edit" || displayView === "create") && editing && isSignedIn && (
                   <ResourceEdit
                     initialResource={editing}
                     initialDistributions={editingDistributions}
@@ -400,7 +430,21 @@ export const App: React.FC = () => {
                   />
                 )}
 
-                {view === "import" && (
+                {displayView === "import" && !isSignedIn && (
+                  <div className="flex flex-col h-full items-center justify-center gap-6 p-8">
+                    <p className="text-slate-600 dark:text-slate-300 text-center max-w-md">
+                      Sign in with Google to import or export data.
+                    </p>
+                    <GoogleAuthButton />
+                    <button
+                      onClick={() => setUrlState({ view: "dashboard" })}
+                      className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
+                    >
+                      ← Back to Dashboard
+                    </button>
+                  </div>
+                )}
+                {displayView === "import" && isSignedIn && (
                   <div className="flex flex-col h-full">
                     <button
                       onClick={() => {
@@ -416,9 +460,8 @@ export const App: React.FC = () => {
 
               </section>
             </div>
-          </main >
-        </ToastProvider>
-      </ErrorBoundary>
+          </main>
     </div>
+    </ErrorBoundary>
   );
 };

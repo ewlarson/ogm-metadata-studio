@@ -3,8 +3,10 @@ import { Resource, SCALAR_FIELDS, Distribution } from "../aardvark/model";
 import { resourceFromRow } from "../aardvark/mapping";
 import {
     SearchResult, FacetedSearchRequest, FacetedSearchResponse,
-    DistributionResult, SuggestResult, FacetValueRequest, FacetValueResult
+    DistributionResult, SuggestResult, FacetValueRequest, FacetValueResult,
+    MapH3Request, MapH3Response
 } from "./types";
+import { H3_RES_COLUMNS } from "./schema";
 import * as duckdb from "@duckdb/duckdb-wasm";
 
 // Helper: Fetch full resource objects by ID
@@ -395,6 +397,73 @@ export async function facetedSearch(req: FacetedSearchRequest): Promise<FacetedS
     } finally {
         if (useGlobal) {
             try { await conn.query(`DROP TABLE IF EXISTS ${globalHitsTable}`); } catch { /* ignore */ }
+        }
+    }
+}
+
+/** H3 hex aggregation for map: counts per hex at given resolution (2–8), filtered by q/filters/bbox. */
+export async function getMapH3(req: MapH3Request): Promise<MapH3Response> {
+    const ctx = await getDuckDbContext();
+    if (!ctx) return { hexes: [] };
+    const { conn } = ctx;
+
+    const resolution = Math.min(8, Math.max(2, Math.floor(req.resolution)));
+    const col = `h3_res${resolution}`;
+    if (!H3_RES_COLUMNS.includes(col)) return { hexes: [] };
+
+    const facetedReq: FacetedSearchRequest = {
+        q: req.q,
+        filters: req.filters,
+        bbox: req.bbox,
+    };
+    const globalClauses: string[] = ["1=1"];
+    let useGlobal = false;
+    if (req.q && req.q.trim()) {
+        useGlobal = true;
+        globalClauses.push(`id IN (SELECT id FROM search_index WHERE content ILIKE '%${req.q.replace(/'/g, "''")}%')`);
+    }
+    if (req.bbox) {
+        useGlobal = true;
+        const { minX, minY, maxX, maxY } = req.bbox;
+        globalClauses.push(`ST_Intersects(geom, ST_MakeEnvelope(${minX}, ${minY}, ${maxX}, ${maxY}))`);
+    }
+    const baseWhere = compileFacetedWhere(facetedReq, null, false).sql;
+
+    const globalHitsTable = `map_h3_${Math.random().toString(36).substring(7)}`;
+    try {
+        if (useGlobal) {
+            const globalWhere = globalClauses.join(" AND ");
+            await conn.query(`CREATE TEMP TABLE ${globalHitsTable} AS SELECT id FROM resources WHERE ${globalWhere}`);
+        }
+
+        const fromClause = useGlobal
+            ? `resources JOIN ${globalHitsTable} gh ON resources.id = gh.id`
+            : "resources";
+        const sql = `
+            SELECT resources."${col}" as h3, count(*) as c
+            FROM ${fromClause}
+            WHERE ${baseWhere} AND resources."${col}" IS NOT NULL AND resources."${col}" != ''
+            GROUP BY resources."${col}"
+        `;
+        const res = await conn.query(sql);
+        const hexes = res.toArray().map((r: any) => ({ h3: String(r.h3), count: Number(r.c) }));
+
+        let globalCount: number | undefined;
+        try {
+            const totalRes = await conn.query(`SELECT count(*) as c FROM ${fromClause} WHERE ${baseWhere}`);
+            globalCount = Number(totalRes.toArray()[0].c);
+        } catch {
+            // ignore
+        }
+
+        return { hexes, globalCount };
+    } finally {
+        if (useGlobal) {
+            try {
+                await conn.query(`DROP TABLE IF EXISTS ${globalHitsTable}`);
+            } catch {
+                /* ignore */
+            }
         }
     }
 }

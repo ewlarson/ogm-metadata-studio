@@ -116,8 +116,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
     return (
         <div className="flex bg-gray-50 dark:bg-slate-900 h-full transition-colors duration-200">
             {/* Sidebar: Facets */}
-            <div className="hidden md:block w-96 flex-shrink-0 border-r border-gray-200 dark:border-slate-800 p-4 overflow-y-auto bg-white dark:bg-transparent">
-                <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-4 uppercase tracking-wider">Refine Results</h3>
+            <div className="hidden md:block w-96 lg:w-[420px] flex-shrink-0 border-r border-gray-200 dark:border-slate-800 p-5 overflow-y-auto bg-white dark:bg-transparent">
+                <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wider">Refine Results</h3>
                 <ErrorBoundary>
                     <MapFacet
                         bbox={currentBBox}
@@ -126,6 +126,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onEdit, onSelect }) => {
                             bbox: b ? `${b.minX},${b.minY},${b.maxX},${b.maxY}` : undefined,
                             page: 1
                         }))}
+                        q={state.q}
+                        filters={activeFilters}
                     />
                 </ErrorBoundary>
                 <ErrorBoundary>
