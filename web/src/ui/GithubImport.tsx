@@ -6,7 +6,7 @@ import { useGithubScanner } from '../hooks/useGithubScanner';
 import { ScanForm } from './import/ScanForm';
 import { ImportProgress } from './import/ImportProgress';
 
-export const GithubImport: React.FC = () => {
+export const GithubImport: React.FC<{ onImported?: () => void | Promise<void> }> = ({ onImported }) => {
     // Use the hook
     const {
         repoUrl, setRepoUrl,
@@ -89,6 +89,7 @@ export const GithubImport: React.FC = () => {
 
         // Final Save
         await saveDb();
+        await onImported?.();
 
         setIsImporting(false);
         alert(`Import Complete! Imported ${successes} files. Failed ${failures}.`);

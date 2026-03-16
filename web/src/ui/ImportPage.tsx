@@ -4,9 +4,10 @@ import { GithubImport } from "./GithubImport";
 
 interface ImportPageProps {
     resourceCount?: number;
+    onImported?: () => void | Promise<void>;
 }
 
-export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0 }) => {
+export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0, onImported }) => {
     const [status, setStatus] = useState<string>("");
     const [loading, setLoading] = useState(false);
     const [mode, setMode] = useState<"local" | "github">("local");
@@ -58,6 +59,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0 }) => 
                     if (!res.success) throw new Error(res.message);
                     totalRows += res.count || 0;
                     setStatus(`Database restored. Loaded ${res.count} items.`);
+                    await onImported?.();
                     return; // DB Restore is a full replacement, stop processing other files if mixed?
                     // Actually, we can just continue, but usually restore is a standalone op.
                 } else {
@@ -69,6 +71,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0 }) => 
                 }
             }
             setStatus(`Import complete! Loaded ${totalRows} resources. Data saved to in-memory DB and IndexedDB.`);
+            await onImported?.();
         } catch (err: any) {
             console.error(err);
             setStatus(`Error: ${err.message}`);
@@ -165,7 +168,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0 }) => 
                     <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm">
                         Scan a GitHub repository for `metadata-aardvark` folders and bulk import JSON records.
                     </p>
-                    <GithubImport />
+                    <GithubImport onImported={onImported} />
                 </div>
             )}
 
