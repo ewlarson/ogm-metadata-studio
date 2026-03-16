@@ -5,6 +5,7 @@ const path = require('path');
 
 const METADATA_DIR = path.join(__dirname, '../../metadata');
 const OUTPUT_FILE = path.join(__dirname, '../public/resources.parquet');
+const SINGLE_JSON_FILE = path.join(METADATA_DIR, 'resources.json');
 
 async function buildDatabase() {
     console.log('Building DuckDB/Parquet artifact...');
@@ -35,6 +36,7 @@ async function buildDatabase() {
     try {
         const globPattern = path.join(METADATA_DIR, '**/*.json');
         console.log(`Glob pattern: ${globPattern}`);
+        console.log(`Preferred source file: ${SINGLE_JSON_FILE}`);
 
         // Check if any files exist first to avoid DuckDB error
         const files = require('glob').sync(globPattern); // We need glob if we want to check beforehand, 
@@ -44,7 +46,7 @@ async function buildDatabase() {
 
         // Actually, easiest is to wrap the create table in try/catch or check if dir is empty.
 
-        if (!fs.existsSync(METADATA_DIR) || fs.readdirSync(METADATA_DIR).filter(f => f.endsWith('.json')).length === 0) {
+        if (!fs.existsSync(METADATA_DIR) || files.length === 0) {
             console.log("No metadata files found locally. Skipping local Parquet generation (Decoupled Mode).");
             // Create empty parquet
             // We need a schema though? Or just empty file?
@@ -60,10 +62,17 @@ async function buildDatabase() {
         // DuckDB read_json_auto supports glob patterns
         // We select * from the json files
         // We use filename=true to debug if needed, union_by_name to handle partial schemas
-        await run(`
-            CREATE TABLE resources AS 
-            SELECT * FROM read_json_auto('${globPattern}', union_by_name=true, filename=true)
-        `);
+        if (fs.existsSync(SINGLE_JSON_FILE)) {
+            await run(`
+                CREATE TABLE resources AS
+                SELECT * FROM read_json_auto('${SINGLE_JSON_FILE}', format='array', union_by_name=true)
+            `);
+        } else {
+            await run(`
+                CREATE TABLE resources AS 
+                SELECT * FROM read_json_auto('${globPattern}', union_by_name=true, filename=true)
+            `);
+        }
 
         // Check count
         const result = await all('SELECT count(*) as count FROM resources');

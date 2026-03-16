@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { importCsv, saveDb, exportDbBlob, importJsonData, exportAardvarkJsonZip } from "../duckdb/duckdbClient";
+import { publishCurrentDataToRepoRoot } from "../publish/publishToRepo";
 import { GithubImport } from "./GithubImport";
 
 interface ImportPageProps {
@@ -11,6 +12,8 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0, onImp
     const [status, setStatus] = useState<string>("");
     const [loading, setLoading] = useState(false);
     const [mode, setMode] = useState<"local" | "github">("local");
+    const [repoRootHandle, setRepoRootHandle] = useState<any | null>(null);
+    const [repoRootName, setRepoRootName] = useState<string>("");
 
     const handleExportJsonZip = async () => {
         try {
@@ -100,6 +103,46 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0, onImp
             setStatus("Database downloaded. Please commit this file to the repository.");
         } catch (err: any) {
             setStatus(`Save failed: ${err.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleChooseRepoRoot = async () => {
+        try {
+            const picker = (window as any).showDirectoryPicker;
+            if (typeof picker !== "function") {
+                throw new Error("This browser does not support choosing a local folder. Use a Chromium-based browser.");
+            }
+
+            const handle = await picker({
+                mode: "readwrite",
+            });
+            setRepoRootHandle(handle);
+            setRepoRootName(handle.name || "");
+            setStatus(`Selected repository folder: ${handle.name}.`);
+        } catch (err: any) {
+            if (err?.name === "AbortError") return;
+            setStatus(`Publish setup failed: ${err.message}`);
+        }
+    };
+
+    const handlePublishToMetadata = async () => {
+        if (!repoRootHandle) {
+            setStatus("Choose your local repository folder first.");
+            return;
+        }
+
+        try {
+            setLoading(true);
+            setStatus("Writing current catalog into metadata/resources.json and metadata/resource_distributions.json...");
+            const result = await publishCurrentDataToRepoRoot(repoRootHandle);
+            const readyMessage = `Publish ready. Wrote ${result.resourceCount} records into ${result.metadataDirName}/${result.resourceFileName} and ${result.distributionCount} distributions into ${result.metadataDirName}/${result.distributionsFileName}. Commit and push those files so everyone sees the same dataset on GitHub Pages.`;
+            setStatus(readyMessage);
+            window.alert(readyMessage);
+        } catch (err: any) {
+            console.error(err);
+            setStatus(`Publish failed: ${err.message}`);
         } finally {
             setLoading(false);
         }
@@ -206,6 +249,57 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0, onImp
                             className="w-full bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium transition-colors"
                         >
                             {loading ? "Zipping..." : "Download JSON Zip"}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6 shadow-sm">
+                <h2 className="text-lg font-semibold mb-4 text-slate-900 dark:text-slate-200">3. Publish Workflow</h2>
+                <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm">
+                    Choose your local repository root and write the current dataset into <code>metadata/resources.json</code>
+                    and <code>metadata/resource_distributions.json</code>.
+                    After that, all you need to do is commit and push those files. GitHub Pages will rebuild
+                    <code>resources.parquet</code> during the normal site build.
+                </p>
+
+                <div className="space-y-4">
+                    <div className="rounded border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-4">
+                        <div className="flex items-center justify-between gap-4">
+                            <div>
+                                <h3 className="text-sm font-medium text-slate-900 dark:text-slate-200">Target Repository Folder</h3>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                    Pick the local repo root that contains the <code>metadata/</code> folder you want to publish.
+                                </p>
+                            </div>
+                            <button
+                                onClick={handleChooseRepoRoot}
+                                disabled={loading}
+                                className="rounded-md border border-indigo-300 dark:border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-4 py-2 text-sm font-medium text-indigo-700 dark:text-indigo-200 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 disabled:opacity-50"
+                            >
+                                {repoRootHandle ? "Choose Different Folder" : "Choose Repo Folder"}
+                            </button>
+                        </div>
+                        <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">
+                            {repoRootHandle
+                                ? `Selected: ${repoRootName || "repository root"}`
+                                : "No repository folder selected yet."}
+                        </p>
+                    </div>
+
+                    <div className="rounded border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20 p-4">
+                        <h3 className="text-sm font-medium text-slate-900 dark:text-slate-200">Write Publishable Metadata</h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">
+                            This writes the current in-browser dataset to <code>metadata/resources.json</code> plus
+                            <code>metadata/resource_distributions.json</code>.
+                            Once complete, commit and push both files so everyone sees the same dataset on GitHub Pages.
+                        </p>
+                        <button
+                            onClick={handlePublishToMetadata}
+                            disabled={loading || !repoRootHandle || resourceCount === 0}
+                            className="w-full bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium transition-colors"
+                        >
+                            {loading ? "Publishing..." : "Prepare metadata JSONs for commit"}
                         </button>
                     </div>
                 </div>
