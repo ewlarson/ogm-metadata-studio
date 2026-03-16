@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { stripBasePath, withBasePath } from '../utils/basePath';
 
 export function useUrlState<T extends Record<string, any>>(
     initialState: T,
@@ -12,7 +13,7 @@ export function useUrlState<T extends Record<string, any>>(
     const [state, setState] = useState<T>(() => {
         // Init from URL on mount
         const params = new URLSearchParams(window.location.search);
-        return { ...initialState, ...mapping.fromUrl(params, window.location.pathname) };
+        return { ...initialState, ...mapping.fromUrl(params, stripBasePath(window.location.pathname)) };
     });
 
     const updateState = useCallback((newState: T | ((prev: T) => T)) => {
@@ -32,9 +33,10 @@ export function useUrlState<T extends Record<string, any>>(
                 currentParams.append(key, value);
             }
 
-            const path = mapping.path ? mapping.path(next) : window.location.pathname;
+            const currentPath = stripBasePath(window.location.pathname);
+            const path = mapping.path ? mapping.path(next) : currentPath;
             const newUrl = `${path}?${currentParams.toString()}`;
-            window.history.pushState({}, '', newUrl);
+            window.history.pushState({}, '', withBasePath(newUrl));
 
             return next;
         });
@@ -44,7 +46,7 @@ export function useUrlState<T extends Record<string, any>>(
     useEffect(() => {
         const onPopState = () => {
             const params = new URLSearchParams(window.location.search);
-            setState({ ...initialState, ...mapping.fromUrl(params, window.location.pathname) });
+            setState({ ...initialState, ...mapping.fromUrl(params, stripBasePath(window.location.pathname)) });
         };
         window.addEventListener('popstate', onPopState);
         return () => window.removeEventListener('popstate', onPopState);

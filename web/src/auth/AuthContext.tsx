@@ -159,7 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!clientId || typeof clientId !== "string" || !clientId.includes(".")) {
       setIsLoading(false);
       setGisReady(false);
-      setError("Sign-in not configured. Set VITE_GOOGLE_CLIENT_ID in web/.env");
+      setError("Sign-in not configured. Set VITE_GOOGLE_CLIENT_ID for the Vite build environment.");
       return;
     }
     setError(null);
@@ -211,7 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(
         clientId
           ? "Google Sign-In script didn't load. Try disabling ad blockers for this site or check the browser console."
-          : "Google Sign-In is not available. Set VITE_GOOGLE_CLIENT_ID in web/.env and restart the dev server."
+          : "Google Sign-In is not available. Set VITE_GOOGLE_CLIENT_ID for the Vite build environment and redeploy."
       );
       return;
     }
