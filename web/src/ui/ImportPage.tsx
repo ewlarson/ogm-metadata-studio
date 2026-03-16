@@ -85,17 +85,19 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0, onImp
             setLoading(true);
             await saveDb(); // Save to IndexedDB
             const blob = await exportDbBlob();
-            if (blob) {
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = "records.duckdb";
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                setStatus("Database downloaded. Please commit this file to the repository.");
+            if (!blob) {
+                setStatus("Browser snapshot saved to IndexedDB. DuckDB file download is not available in this deployment.");
+                return;
             }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "records.duckdb";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            setStatus("Database downloaded. Please commit this file to the repository.");
         } catch (err: any) {
             setStatus(`Save failed: ${err.message}`);
         } finally {
