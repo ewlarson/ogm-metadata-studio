@@ -1,4 +1,6 @@
-import { getDuckDbContext, DB_FILENAME, INDEXEDDB_NAME, saveToIndexedDB } from "./dbInit";
+import { resourceToJson } from "../aardvark/model";
+import { queryResources } from "./queries";
+import { getDuckDbContext, DB_FILENAME, INDEXEDDB_NAME, saveSnapshotToIndexedDB, saveToIndexedDB } from "./dbInit";
 
 export async function saveDb() {
     const ctx = await getDuckDbContext();
@@ -7,13 +9,27 @@ export async function saveDb() {
     // Force flush to virtual disk
     try { await ctx.conn.query("CHECKPOINT"); } catch (e) { console.warn("Checkpoint failed", e); }
 
-    const buffer = await ctx.db.copyFileToBuffer(DB_FILENAME);
-    if (buffer.byteLength === 0) {
-        console.warn("Attempted to save 0-byte DB. Skipping.");
-        return;
+    let savedDbFile = false;
+    try {
+        const buffer = await ctx.db.copyFileToBuffer(DB_FILENAME);
+        if (buffer.byteLength === 0) {
+            console.warn("Attempted to save 0-byte DB. Falling back to JSON snapshot persistence.");
+        } else {
+            await saveToIndexedDB(buffer);
+            console.log("DB Saved to IndexedDB");
+            savedDbFile = true;
+        }
+    } catch (e) {
+        console.warn("Failed to persist DuckDB file. Falling back to JSON snapshot persistence.", e);
     }
-    await saveToIndexedDB(buffer);
-    console.log("DB Saved to IndexedDB");
+
+    const resources = await queryResources();
+    const snapshot = resources.map((resource) => resourceToJson(resource));
+    await saveSnapshotToIndexedDB(snapshot);
+
+    if (!savedDbFile) {
+        console.log("Persisted JSON snapshot to IndexedDB.");
+    }
 }
 
 export async function exportDbBlob(): Promise<Blob | null> {
