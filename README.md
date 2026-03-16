@@ -4,7 +4,7 @@ A browser-native metadata management workspace for the [OpenGeoMetadata Aardvark
 
 **Aardvark Metadata Studio** enables libraries and researchers to manage geospatial metadata repositories (like OpenGeoMetadata) entirely in the browser. It combines the speed of a local database engine with the persistence of standard Git workflows.
 
-Built with **React**, **Vite**, **DuckDB-WASM**, and **GitHub REST API**.
+Built with **React**, **Vite**, **DuckDB-WASM**, **Google Auth**, and **GitHub REST API**.
 
 ## ✨ Features
 
