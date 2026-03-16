@@ -5,6 +5,7 @@ import { Resource, SCALAR_FIELDS, REPEATABLE_STRING_FIELDS, CSV_HEADER_MAPPING, 
 import * as duckdb from "@duckdb/duckdb-wasm";
 import { latLngToCell } from "h3-js";
 import { H3_RES_COLUMNS } from "./schema";
+import { formatCentroid, getCentroidFromGeometry } from "../ui/resource/viewerConfig";
 
 export async function importCsv(file: File): Promise<{ success: boolean, message: string, count?: number }> {
     const ctx = await getDuckDbContext();
@@ -181,26 +182,183 @@ export async function importCsv(file: File): Promise<{ success: boolean, message
     }
 }
 
-export async function importJsonData(json: any, options: { skipSave?: boolean } = {}): Promise<number> {
-    const records = Array.isArray(json) ? json : [json];
-    let count = 0;
+type JsonImportMode = "upsert" | "replace";
+
+function sqlLiteral(value: unknown): string {
+    if (value === undefined || value === null) return "NULL";
+    return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function chunk<T>(values: T[], size: number): T[][] {
+    const out: T[][] = [];
+    for (let i = 0; i < values.length; i += size) {
+        out.push(values.slice(i, i + size));
+    }
+    return out;
+}
+
+function searchContentFor(resource: Resource): string {
+    const parts: string[] = [resource.dct_title_s || ""];
+    if (resource.dct_description_sm) parts.push(...resource.dct_description_sm);
+    if (resource.dct_subject_sm) parts.push(...resource.dct_subject_sm);
+    if (resource.dcat_keyword_sm) parts.push(...resource.dcat_keyword_sm);
+    return parts.join(" ").replace(/\n/g, " ");
+}
+
+function normalizeRecord(record: any, uriToKey: Map<string, string>) {
+    const distributions = extractDistributions(record, uriToKey);
+    let resource = prepareResource(record);
+    if (!resource.dcat_centroid || String(resource.dcat_centroid).trim() === "") {
+        const centroid = getCentroidFromGeometry(resource);
+        if (centroid) {
+            resource = { ...resource, dcat_centroid: formatCentroid(centroid[0], centroid[1]) };
+        }
+    }
+    const centroid = parseCentroidForH3(resource.dcat_centroid);
+    const h3Values = H3_RES_COLUMNS.map((_, i) => {
+        if (!centroid) return null;
+        const res = i + 2;
+        return latLngToCell(centroid[0], centroid[1], res);
+    });
+    return { resource, distributions, h3Values, content: searchContentFor(resource) };
+}
+
+async function ingestJsonData(recordsInput: any[], options: { skipSave?: boolean } = {}, mode: JsonImportMode = "upsert"): Promise<number> {
+    const ctx = await getDuckDbContext();
+    if (!ctx) throw new Error("DB not available");
+    const { conn } = ctx;
+
     const uriToKey = new Map<string, string>();
     for (const [key, uri] of Object.entries(REFERENCE_URI_MAPPING)) {
         uriToKey.set(uri, key);
     }
 
-    for (const record of records) {
-        if (!record.id) continue;
-        const distributions = extractDistributions(record, uriToKey);
-        const res = prepareResource(record);
-        await upsertResource(res, distributions, { skipSave: true });
-        count++;
+    const normalized = recordsInput
+        .filter((record) => record && record.id)
+        .map((record) => normalizeRecord(record, uriToKey));
+
+    if (normalized.length === 0) return 0;
+
+    const ids = normalized.map(({ resource }) => resource.id);
+    const scalarColumns = SCALAR_FIELDS.filter((field) => field !== "dct_references_s");
+    const resourceColumns = [...scalarColumns, ...H3_RES_COLUMNS];
+
+    await conn.query("BEGIN TRANSACTION");
+    try {
+        if (mode === "replace") {
+            await conn.query("DELETE FROM resources");
+            await conn.query("DELETE FROM resources_mv");
+            await conn.query("DELETE FROM distributions");
+            await conn.query("DELETE FROM search_index");
+        } else {
+            for (const idGroup of chunk(ids, 500)) {
+                const idList = idGroup.map(sqlLiteral).join(",");
+                await conn.query(`DELETE FROM resources WHERE id IN (${idList})`);
+                await conn.query(`DELETE FROM resources_mv WHERE id IN (${idList})`);
+                await conn.query(`DELETE FROM distributions WHERE resource_id IN (${idList})`);
+                await conn.query(`DELETE FROM search_index WHERE id IN (${idList})`);
+            }
+        }
+
+        for (const group of chunk(normalized, 100)) {
+            const values = group.map(({ resource, h3Values }) => {
+                const scalarVals = scalarColumns.map((field) => {
+                    const val = resource[field as keyof Resource];
+                    return sqlLiteral(val);
+                });
+                const h3Literals = h3Values.map(sqlLiteral);
+                return `(${[...scalarVals, ...h3Literals].join(",")})`;
+            }).join(",");
+            await conn.query(`INSERT INTO resources (${resourceColumns.map((c) => `"${c}"`).join(",")}) VALUES ${values}`);
+        }
+
+        for (const idGroup of chunk(ids, 500)) {
+            const idList = idGroup.map(sqlLiteral).join(",");
+            try {
+                await conn.query(`
+                  UPDATE resources
+                  SET geom = ST_MakeEnvelope(
+                    CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[1] AS DOUBLE),
+                    CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[4] AS DOUBLE),
+                    CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[2] AS DOUBLE),
+                    CAST((string_split(regexp_replace(dcat_bbox, 'ENVELOPE\\(|\\)', '', 'g'), ','))[3] AS DOUBLE)
+                  )
+                  WHERE id IN (${idList}) AND dcat_bbox LIKE 'ENVELOPE(%'
+                `);
+            } catch (e) {
+                console.warn("Failed to populate geom from dcat_bbox in bulk import", e);
+            }
+            try {
+                await conn.query(`
+                  UPDATE resources
+                  SET geom = ST_GeomFromGeoJSON(locn_geometry)
+                  WHERE id IN (${idList})
+                  AND geom IS NULL
+                  AND locn_geometry IS NOT NULL
+                  AND trim(locn_geometry) != ''
+                `);
+            } catch (e) {
+                console.warn("Failed to populate geom from locn_geometry in bulk import", e);
+            }
+        }
+
+        const mvRows: string[] = [];
+        for (const { resource } of normalized) {
+            const safeId = sqlLiteral(resource.id);
+            for (const field of REPEATABLE_STRING_FIELDS) {
+                const values = resource[field as keyof Resource] as unknown;
+                if (!Array.isArray(values)) continue;
+                for (const value of values) {
+                    if (!value) continue;
+                    mvRows.push(`(${safeId},${sqlLiteral(field)},${sqlLiteral(value)})`);
+                }
+            }
+        }
+        for (const group of chunk(mvRows, 1000)) {
+            if (group.length === 0) continue;
+            await conn.query(`INSERT INTO resources_mv (id, field, val) VALUES ${group.join(",")}`);
+        }
+
+        const distRows: string[] = [];
+        for (const { distributions } of normalized) {
+            for (const d of distributions) {
+                distRows.push(`(${sqlLiteral(d.resource_id)},${sqlLiteral(d.relation_key)},${sqlLiteral(d.url)},${sqlLiteral(d.label ?? null)})`);
+            }
+        }
+        for (const group of chunk(distRows, 1000)) {
+            if (group.length === 0) continue;
+            await conn.query(`INSERT INTO distributions (resource_id, relation_key, url, label) VALUES ${group.join(",")}`);
+        }
+
+        const searchRows = normalized.map(({ resource, content }) => `(${sqlLiteral(resource.id)},${sqlLiteral(content)})`);
+        for (const group of chunk(searchRows, 1000)) {
+            if (group.length === 0) continue;
+            await conn.query(`INSERT INTO search_index (id, content) VALUES ${group.join(",")}`);
+        }
+
+        await conn.query("COMMIT");
+    } catch (error) {
+        try {
+            await conn.query("ROLLBACK");
+        } catch {
+            // ignore rollback failure
+        }
+        throw error;
     }
 
     if (!options.skipSave) {
         await saveDb();
     }
-    return count;
+    return normalized.length;
+}
+
+export async function importJsonData(json: any, options: { skipSave?: boolean } = {}): Promise<number> {
+    const records = Array.isArray(json) ? json : [json];
+    return ingestJsonData(records, options, "upsert");
+}
+
+export async function replaceAllJsonData(json: any[], options: { skipSave?: boolean } = {}): Promise<number> {
+    return ingestJsonData(json, options, "replace");
 }
 
 function extractDistributions(record: any, uriToKey: Map<string, string>): Distribution[] {

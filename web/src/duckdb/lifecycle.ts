@@ -1,6 +1,6 @@
 import { resourceToJson } from "../aardvark/model";
 import { queryResources } from "./queries";
-import { getDuckDbContext, INDEXEDDB_NAME, saveSnapshotToIndexedDB } from "./dbInit";
+import { getDuckDbContext, INDEXEDDB_NAME, replaceRecordsInIndexedDB } from "./dbInit";
 
 export async function saveDb() {
     const ctx = await getDuckDbContext();
@@ -8,8 +8,8 @@ export async function saveDb() {
 
     const resources = await queryResources();
     const snapshot = resources.map((resource) => resourceToJson(resource));
-    await saveSnapshotToIndexedDB(snapshot);
-    console.log("Persisted JSON snapshot to IndexedDB.");
+    await replaceRecordsInIndexedDB(snapshot);
+    console.log("Persisted structured IndexedDB records.");
 }
 
 export async function exportDbBlob(): Promise<Blob | null> {
