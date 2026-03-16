@@ -13,6 +13,14 @@ export const INDEXEDDB_STORE = "database";
 export const INDEXEDDB_RECORDS_STORE = "records";
 export const SNAPSHOT_KEY = "records.snapshot.json";
 const INDEXEDDB_VERSION = 2;
+export const DUCKDB_RESTORE_PROGRESS_EVENT = "duckdb-restore-progress";
+export const DUCKDB_RESTORED_EVENT = "duckdb-restored";
+
+interface RestoreStatus {
+    inProgress: boolean;
+    processed: number;
+    total: number;
+}
 
 export interface DuckDbContext {
     db: duckdb.AsyncDuckDB;
@@ -21,6 +29,81 @@ export interface DuckDbContext {
 
 // Singleton connection
 let cached: Promise<DuckDbContext | null> | null = null;
+let restoreStatus: RestoreStatus = { inProgress: false, processed: 0, total: 0 };
+let restorePromise: Promise<void> | null = null;
+
+function updateRestoreStatus(next: Partial<RestoreStatus>) {
+    restoreStatus = { ...restoreStatus, ...next };
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(DUCKDB_RESTORE_PROGRESS_EVENT, { detail: restoreStatus }));
+    }
+}
+
+function notifyRestoreFinished() {
+    restoreStatus = { ...restoreStatus, inProgress: false, processed: restoreStatus.total };
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(DUCKDB_RESTORE_PROGRESS_EVENT, { detail: restoreStatus }));
+        window.dispatchEvent(new CustomEvent(DUCKDB_RESTORED_EVENT, { detail: restoreStatus }));
+    }
+}
+
+export function getDuckDbRestoreStatus(): RestoreStatus {
+    return restoreStatus;
+}
+
+async function startBackgroundRestore(db: duckdb.AsyncDuckDB): Promise<void> {
+    if (restorePromise) return restorePromise;
+
+    restorePromise = (async () => {
+        let records = await loadRecordsFromIndexedDB();
+        if (records.length === 0) {
+            const snapshot = await loadSnapshotFromIndexedDB();
+            if (snapshot !== null && snapshot.length > 0) {
+                console.log(`[IndexedDB] Migrating ${snapshot.length} resources from legacy JSON snapshot...`);
+                await replaceRecordsInIndexedDB(snapshot);
+                await clearLegacySnapshot();
+                records = snapshot;
+            }
+        }
+
+        if (records.length === 0) {
+            updateRestoreStatus({ inProgress: false, processed: 0, total: 0 });
+            notifyRestoreFinished();
+            return;
+        }
+
+        console.log(`[IndexedDB] Restoring ${records.length} resources from IndexedDB records...`);
+        updateRestoreStatus({ inProgress: true, processed: 0, total: records.length });
+
+        const restoreConn = await db.connect();
+        try {
+            const { replaceAllJsonData } = await import("./import");
+            await replaceAllJsonData(records, {
+                skipSave: true,
+                connOverride: restoreConn,
+                onProgress: (processed, total) => updateRestoreStatus({ inProgress: true, processed, total }),
+            });
+        } finally {
+            try {
+                await restoreConn.close();
+            } catch {
+                // ignore
+            }
+        }
+
+        backfillCentroidAndH3().then(({ h3Filled }) => {
+            if (h3Filled > 0) console.log(`[Backfill] Centroid/H3: ${h3Filled} resources updated for map hexagons.`);
+        }).catch((e) => console.warn("[Backfill] Failed:", e));
+
+        notifyRestoreFinished();
+    })().catch((error) => {
+        console.error("Background restore failed", error);
+        updateRestoreStatus({ inProgress: false });
+        notifyRestoreFinished();
+    });
+
+    return restorePromise;
+}
 
 // Initialize DuckDB
 export async function getDuckDbContext(): Promise<DuckDbContext | null> {
@@ -41,28 +124,7 @@ export async function getDuckDbContext(): Promise<DuckDbContext | null> {
             await conn.query("INSTALL spatial; LOAD spatial;");
 
             await ensureSchema(conn);
-
-            let records = await loadRecordsFromIndexedDB();
-            if (records.length > 0) {
-                console.log(`[IndexedDB] Restoring ${records.length} resources from IndexedDB records...`);
-                const { replaceAllJsonData } = await import("./import");
-                await replaceAllJsonData(records, { skipSave: true });
-            } else {
-                const snapshot = await loadSnapshotFromIndexedDB();
-                if (snapshot !== null && snapshot.length > 0) {
-                    console.log(`[IndexedDB] Migrating ${snapshot.length} resources from legacy JSON snapshot...`);
-                    const { replaceAllJsonData } = await import("./import");
-                    await replaceAllJsonData(snapshot, { skipSave: true });
-                    await replaceRecordsInIndexedDB(snapshot);
-                    await clearLegacySnapshot();
-                    records = snapshot;
-                }
-            }
-
-            // Backfill centroid + H3 for existing resources so map hexagons show (non-blocking)
-            backfillCentroidAndH3().then(({ centroidFilled, h3Filled }) => {
-                if (h3Filled > 0) console.log(`[Backfill] Centroid/H3: ${h3Filled} resources updated for map hexagons.`);
-            }).catch((e) => console.warn("[Backfill] Failed:", e));
+            void startBackgroundRestore(db);
             return { db, conn };
         } catch (err: any) {
             console.error("DuckDB initialization failed", err);

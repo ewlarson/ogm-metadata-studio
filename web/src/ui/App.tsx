@@ -17,6 +17,7 @@ import { useToast } from "./shared/ToastContext";
 import { GoogleAuthButton } from "./GoogleAuthButton";
 import { useAuth } from "../auth/useAuth";
 import { withBasePath } from "../utils/basePath";
+import { DUCKDB_RESTORED_EVENT, DUCKDB_RESTORE_PROGRESS_EVENT, getDuckDbRestoreStatus } from "../duckdb/dbInit";
 
 
 // URL State
@@ -82,6 +83,7 @@ export const App: React.FC = () => {
   // Local state only
   const [resourceCount, setResourceCount] = useState<number>(0);
   const [resourceCountLoading, setResourceCountLoading] = useState(true);
+  const [restoreProgress, setRestoreProgress] = useState(getDuckDbRestoreStatus);
 
   // URL State
   const [urlState, setUrlState] = useUrlState<AppState>(
@@ -123,6 +125,23 @@ export const App: React.FC = () => {
   useEffect(() => {
     // Just refresh count, data loading is handled by DuckDB client internals
     refreshResourceCount();
+  }, []);
+
+  useEffect(() => {
+    const handleRestoreProgress = (event: Event) => {
+      const customEvent = event as CustomEvent<typeof restoreProgress>;
+      setRestoreProgress(customEvent.detail ?? getDuckDbRestoreStatus());
+    };
+    const handleRestored = () => {
+      setRestoreProgress(getDuckDbRestoreStatus());
+      void refreshResourceCount();
+    };
+    window.addEventListener(DUCKDB_RESTORE_PROGRESS_EVENT, handleRestoreProgress);
+    window.addEventListener(DUCKDB_RESTORED_EVENT, handleRestored);
+    return () => {
+      window.removeEventListener(DUCKDB_RESTORE_PROGRESS_EVENT, handleRestoreProgress);
+      window.removeEventListener(DUCKDB_RESTORED_EVENT, handleRestored);
+    };
   }, []);
 
   // Sync URL when we're displaying a different view due to auth (keeps URL bar correct)
@@ -365,6 +384,11 @@ export const App: React.FC = () => {
 
       <main className="flex-1 p-6 w-full mx-auto flex flex-col min-h-0">
             <div className="flex-1 flex flex-col min-h-0 space-y-6">
+              {restoreProgress.inProgress && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                  Restoring local records into DuckDB: {restoreProgress.processed} / {restoreProgress.total}
+                </div>
+              )}
 
               <section className={`rounded-xl border border-gray-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/60 p-6 flex-1 flex flex-col min-h-0 shadow-sm dark:shadow-none backdrop-blur-sm ${displayView === 'map' ? '' : 'overflow-hidden'}`}>
                 {(displayView === "dashboard" || displayView === "list" || displayView === "gallery" || displayView === "map") && (
