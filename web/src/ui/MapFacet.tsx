@@ -198,6 +198,7 @@ export const MapFacet: React.FC<MapFacetProps> = ({ bbox, onChange, q = "", filt
     const mapRef = useRef<maplibregl.Map | null>(null);
     const [hexLoading, setHexLoading] = useState(false);
     const [hexData, setHexData] = useState<{ h3: string; count: number }[]>([]);
+    const [restoreVersion, setRestoreVersion] = useState(0);
     const hasInitialFitRef = useRef(false);
     const lastGlobalContextRef = useRef<string | null>(null);
     const pendingAutoFitViewRef = useRef<{ bounds: maplibregl.LngLatBounds; center: [number, number] | null } | null>(null);
@@ -299,6 +300,8 @@ export const MapFacet: React.FC<MapFacetProps> = ({ bbox, onChange, q = "", filt
 
     useEffect(() => {
         const handleRestored = () => {
+            lastGlobalContextRef.current = null;
+            setRestoreVersion((v) => v + 1);
             void fetchHexes();
         };
         window.addEventListener(DUCKDB_RESTORED_EVENT, handleRestored);
@@ -312,7 +315,7 @@ export const MapFacet: React.FC<MapFacetProps> = ({ bbox, onChange, q = "", filt
         const map = mapRef.current;
         if (!map || bbox) return;
 
-        const ctxKey = JSON.stringify({ q: q.trim() || "", filters: filters || {} });
+        const ctxKey = JSON.stringify({ q: q.trim() || "", filters: filters || {}, restoreVersion });
         if (lastGlobalContextRef.current === ctxKey) return;
         lastGlobalContextRef.current = ctxKey;
         hasInitialFitRef.current = false;
@@ -352,7 +355,7 @@ export const MapFacet: React.FC<MapFacetProps> = ({ bbox, onChange, q = "", filt
         return () => {
             cancelled = true;
         };
-    }, [q, filters, bbox]);
+    }, [q, filters, bbox, restoreVersion]);
 
     // Update GeoJSON layer when hexData changes
     useEffect(() => {
