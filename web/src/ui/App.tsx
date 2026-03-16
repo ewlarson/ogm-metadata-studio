@@ -16,6 +16,7 @@ import { ErrorBoundary } from "./shared/ErrorBoundary";
 import { useToast } from "./shared/ToastContext";
 import { GoogleAuthButton } from "./GoogleAuthButton";
 import { useAuth } from "../auth/useAuth";
+import { withBasePath } from "../utils/basePath";
 
 
 // URL State
@@ -123,13 +124,6 @@ export const App: React.FC = () => {
     // Just refresh count, data loading is handled by DuckDB client internals
     refreshResourceCount();
   }, []);
-
-  // Redirect to import if empty
-  useEffect(() => {
-    if (!resourceCountLoading && resourceCount === 0 && view !== 'import') {
-      setUrlState({ view: 'import' });
-    }
-  }, [resourceCount, resourceCountLoading, view, setUrlState]);
 
   // Sync URL when we're displaying a different view due to auth (keeps URL bar correct)
   useEffect(() => {
@@ -252,7 +246,7 @@ export const App: React.FC = () => {
 
   const handleReset = () => {
     // Reset to root with no params
-    window.history.pushState({}, "", "/");
+    window.history.pushState({}, "", withBasePath("/"));
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 

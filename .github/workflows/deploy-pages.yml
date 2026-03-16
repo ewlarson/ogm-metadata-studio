@@ -19,6 +19,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+      VITE_GOOGLE_ALLOWED_EMAILS: ${{ secrets.VITE_GOOGLE_ALLOWED_EMAILS }}
 
     steps:
       - name: Checkout repository

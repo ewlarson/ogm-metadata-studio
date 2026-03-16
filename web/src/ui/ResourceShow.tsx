@@ -9,6 +9,7 @@ import { ResourceHeader } from './resource/ResourceHeader';
 
 import { databaseService } from '../services/DatabaseService';
 import { useToast } from './shared/ToastContext';
+import { withBasePath } from '../utils/basePath';
 
 
 interface ResourceShowProps {
@@ -90,7 +91,7 @@ export const ResourceShow: React.FC<ResourceShowProps> = ({ id, onBack }) => {
 
     const navigateToId = (targetId: string) => {
         const search = window.location.search;
-        const url = `/resources/${encodeURIComponent(targetId)}${search}`;
+        const url = withBasePath(`/resources/${encodeURIComponent(targetId)}${search}`);
         window.history.pushState({}, "", url);
         window.dispatchEvent(new PopStateEvent("popstate"));
     };
