@@ -6,7 +6,6 @@ import mvpWasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
 import type { AardvarkJson } from "../aardvark/model";
 import { ensureSchema } from "./schema";
 import { backfillCentroidAndH3 } from "./backfill";
-import { withBasePath } from "../utils/basePath";
 
 export const DB_FILENAME = "records.duckdb";
 export const INDEXEDDB_NAME = "aardvark-duckdb";
@@ -29,36 +28,8 @@ export async function getDuckDbContext(): Promise<DuckDbContext | null> {
         try {
             const db = await initializeDuckDB();
 
-            // Always start with memory to ensure we have a valid interface
+            // Run fully in memory in the browser; persistence is handled separately.
             await db.open({ path: ':memory:' });
-
-            // Attempt to load from IndexedDB
-            const idbBuffer = await loadFromIndexedDB();
-            const snapshot = idbBuffer ? null : await loadSnapshotFromIndexedDB();
-
-            if (idbBuffer) {
-                console.log("Restoring DB from IndexedDB...");
-                try {
-                    await db.registerFileBuffer(DB_FILENAME, idbBuffer);
-                } catch (e) {
-                    console.warn("Failed to register IDB buffer", e);
-                }
-            } else if (snapshot !== null) {
-                console.log("Restoring DB from IndexedDB snapshot...");
-            } else {
-                // Try server fetch if IDB failed/empty
-                console.log("Fetching DB from server...");
-                try {
-                    const response = await fetch(withBasePath(`/${DB_FILENAME}`));
-                    if (response.ok) {
-                        const buffer = new Uint8Array(await response.arrayBuffer());
-                        await db.registerFileBuffer(DB_FILENAME, buffer);
-                        console.log("Opened DB from server.");
-                    }
-                } catch (e) {
-                    console.warn("Server DB fetch failed or invalid", e);
-                }
-            }
 
             const conn = await db.connect();
 
@@ -67,34 +38,10 @@ export async function getDuckDbContext(): Promise<DuckDbContext | null> {
             await conn.query("INSTALL fts; LOAD fts;");
             await conn.query("INSTALL spatial; LOAD spatial;");
 
-            // Attach the persistent file. This creates it if it doesn't exist.
-            // If it exists but is corrupt, ATTACH might fail.
-            let attached = false;
-            try {
-                await conn.query(`ATTACH '${DB_FILENAME}'`);
-                attached = true;
-            } catch (err: any) {
-                console.warn("Used existing file but ATTACH failed (corruption?). Starting fresh.", err);
-                // Corruption? Drop file and retry (creates new)
-                try { await db.dropFile(DB_FILENAME); } catch { /* ignore */ }
-                try {
-                    await conn.query(`ATTACH '${DB_FILENAME}'`);
-                    attached = true;
-                } catch (retryErr) {
-                    console.error("Retried ATTACH failed", retryErr);
-                }
-            }
-
-            if (attached) {
-                // Set as default so queries don't need 'records.' prefix
-                await conn.query(`USE records`);
-            } else {
-                console.warn("Could not ATTACH persistent DB. Running purely in-memory.");
-            }
-
             await ensureSchema(conn);
 
-            if (!idbBuffer && snapshot !== null && snapshot.length > 0) {
+            const snapshot = await loadSnapshotFromIndexedDB();
+            if (snapshot !== null && snapshot.length > 0) {
                 console.log(`[IndexedDB] Restoring ${snapshot.length} resources from JSON snapshot...`);
                 const { importJsonData } = await import("./import");
                 await importJsonData(snapshot, { skipSave: true });
