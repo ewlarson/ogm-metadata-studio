@@ -10,7 +10,9 @@ import { backfillCentroidAndH3 } from "./backfill";
 export const DB_FILENAME = "records.duckdb";
 export const INDEXEDDB_NAME = "aardvark-duckdb";
 export const INDEXEDDB_STORE = "database";
+export const INDEXEDDB_RECORDS_STORE = "records";
 export const SNAPSHOT_KEY = "records.snapshot.json";
+const INDEXEDDB_VERSION = 2;
 
 export interface DuckDbContext {
     db: duckdb.AsyncDuckDB;
@@ -40,11 +42,21 @@ export async function getDuckDbContext(): Promise<DuckDbContext | null> {
 
             await ensureSchema(conn);
 
-            const snapshot = await loadSnapshotFromIndexedDB();
-            if (snapshot !== null && snapshot.length > 0) {
-                console.log(`[IndexedDB] Restoring ${snapshot.length} resources from JSON snapshot...`);
-                const { importJsonData } = await import("./import");
-                await importJsonData(snapshot, { skipSave: true });
+            let records = await loadRecordsFromIndexedDB();
+            if (records.length > 0) {
+                console.log(`[IndexedDB] Restoring ${records.length} resources from IndexedDB records...`);
+                const { replaceAllJsonData } = await import("./import");
+                await replaceAllJsonData(records, { skipSave: true });
+            } else {
+                const snapshot = await loadSnapshotFromIndexedDB();
+                if (snapshot !== null && snapshot.length > 0) {
+                    console.log(`[IndexedDB] Migrating ${snapshot.length} resources from legacy JSON snapshot...`);
+                    const { replaceAllJsonData } = await import("./import");
+                    await replaceAllJsonData(snapshot, { skipSave: true });
+                    await replaceRecordsInIndexedDB(snapshot);
+                    await clearLegacySnapshot();
+                    records = snapshot;
+                }
             }
 
             // Backfill centroid + H3 for existing resources so map hexagons show (non-blocking)
@@ -93,10 +105,12 @@ async function createDB(wUrl: string, waUrl: string): Promise<duckdb.AsyncDuckDB
 export async function loadFromIndexedDB(): Promise<Uint8Array | null> {
     return new Promise((resolve) => {
         console.log(`[IndexedDB] Opening ${INDEXEDDB_NAME} to read...`);
-        const req = indexedDB.open(INDEXEDDB_NAME, 1);
+        const req = indexedDB.open(INDEXEDDB_NAME, INDEXEDDB_VERSION);
         req.onupgradeneeded = (e: any) => {
             console.log("[IndexedDB] Creating object store...");
-            e.target.result.createObjectStore(INDEXEDDB_STORE);
+            const db = e.target.result as IDBDatabase;
+            if (!db.objectStoreNames.contains(INDEXEDDB_STORE)) db.createObjectStore(INDEXEDDB_STORE);
+            if (!db.objectStoreNames.contains(INDEXEDDB_RECORDS_STORE)) db.createObjectStore(INDEXEDDB_RECORDS_STORE, { keyPath: "id" });
         }
         req.onsuccess = (e: any) => {
             const db = e.target.result;
@@ -125,9 +139,11 @@ export async function loadFromIndexedDB(): Promise<Uint8Array | null> {
 
 export async function loadSnapshotFromIndexedDB(): Promise<AardvarkJson[] | null> {
     return new Promise((resolve) => {
-        const req = indexedDB.open(INDEXEDDB_NAME, 1);
+        const req = indexedDB.open(INDEXEDDB_NAME, INDEXEDDB_VERSION);
         req.onupgradeneeded = (e: any) => {
-            e.target.result.createObjectStore(INDEXEDDB_STORE);
+            const db = e.target.result as IDBDatabase;
+            if (!db.objectStoreNames.contains(INDEXEDDB_STORE)) db.createObjectStore(INDEXEDDB_STORE);
+            if (!db.objectStoreNames.contains(INDEXEDDB_RECORDS_STORE)) db.createObjectStore(INDEXEDDB_RECORDS_STORE, { keyPath: "id" });
         };
         req.onsuccess = (e: any) => {
             const db = e.target.result;
@@ -162,9 +178,11 @@ export async function loadSnapshotFromIndexedDB(): Promise<AardvarkJson[] | null
 export async function saveToIndexedDB(buffer: Uint8Array): Promise<void> {
     return new Promise((resolve, reject) => {
         console.log(`[IndexedDB] Saving ${buffer.byteLength} bytes...`);
-        const req = indexedDB.open(INDEXEDDB_NAME, 1);
+        const req = indexedDB.open(INDEXEDDB_NAME, INDEXEDDB_VERSION);
         req.onupgradeneeded = (e: any) => {
-            e.target.result.createObjectStore(INDEXEDDB_STORE);
+            const db = e.target.result as IDBDatabase;
+            if (!db.objectStoreNames.contains(INDEXEDDB_STORE)) db.createObjectStore(INDEXEDDB_STORE);
+            if (!db.objectStoreNames.contains(INDEXEDDB_RECORDS_STORE)) db.createObjectStore(INDEXEDDB_RECORDS_STORE, { keyPath: "id" });
         }
         req.onsuccess = (e: any) => {
             const db = e.target.result;
@@ -182,9 +200,11 @@ export async function saveToIndexedDB(buffer: Uint8Array): Promise<void> {
 
 export async function saveSnapshotToIndexedDB(snapshot: AardvarkJson[]): Promise<void> {
     return new Promise((resolve, reject) => {
-        const req = indexedDB.open(INDEXEDDB_NAME, 1);
+        const req = indexedDB.open(INDEXEDDB_NAME, INDEXEDDB_VERSION);
         req.onupgradeneeded = (e: any) => {
-            e.target.result.createObjectStore(INDEXEDDB_STORE);
+            const db = e.target.result as IDBDatabase;
+            if (!db.objectStoreNames.contains(INDEXEDDB_STORE)) db.createObjectStore(INDEXEDDB_STORE);
+            if (!db.objectStoreNames.contains(INDEXEDDB_RECORDS_STORE)) db.createObjectStore(INDEXEDDB_RECORDS_STORE, { keyPath: "id" });
         };
         req.onsuccess = (e: any) => {
             const db = e.target.result;
@@ -195,6 +215,92 @@ export async function saveSnapshotToIndexedDB(snapshot: AardvarkJson[]): Promise
                 resolve();
             };
             put.onerror = () => reject(put.error);
+        };
+        req.onerror = () => reject(req.error);
+    });
+}
+
+export async function loadRecordsFromIndexedDB(): Promise<AardvarkJson[]> {
+    return new Promise((resolve) => {
+        const req = indexedDB.open(INDEXEDDB_NAME, INDEXEDDB_VERSION);
+        req.onupgradeneeded = (e: any) => {
+            const db = e.target.result as IDBDatabase;
+            if (!db.objectStoreNames.contains(INDEXEDDB_STORE)) db.createObjectStore(INDEXEDDB_STORE);
+            if (!db.objectStoreNames.contains(INDEXEDDB_RECORDS_STORE)) db.createObjectStore(INDEXEDDB_RECORDS_STORE, { keyPath: "id" });
+        };
+        req.onsuccess = (e: any) => {
+            const db = e.target.result as IDBDatabase;
+            const tx = db.transaction([INDEXEDDB_RECORDS_STORE], "readonly");
+            const getAll = tx.objectStore(INDEXEDDB_RECORDS_STORE).getAll();
+            getAll.onsuccess = () => {
+                const results = Array.isArray(getAll.result) ? getAll.result as AardvarkJson[] : [];
+                resolve(results);
+            };
+            getAll.onerror = () => {
+                console.warn("[IndexedDB] Failed to load records store", getAll.error);
+                resolve([]);
+            };
+        };
+        req.onerror = () => {
+            console.warn("[IndexedDB] Failed to open DB for records store", req.error);
+            resolve([]);
+        };
+    });
+}
+
+export async function replaceRecordsInIndexedDB(records: AardvarkJson[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(INDEXEDDB_NAME, INDEXEDDB_VERSION);
+        req.onupgradeneeded = (e: any) => {
+            const db = e.target.result as IDBDatabase;
+            if (!db.objectStoreNames.contains(INDEXEDDB_STORE)) db.createObjectStore(INDEXEDDB_STORE);
+            if (!db.objectStoreNames.contains(INDEXEDDB_RECORDS_STORE)) db.createObjectStore(INDEXEDDB_RECORDS_STORE, { keyPath: "id" });
+        };
+        req.onsuccess = (e: any) => {
+            const db = e.target.result as IDBDatabase;
+            const tx = db.transaction([INDEXEDDB_RECORDS_STORE, INDEXEDDB_STORE], "readwrite");
+            const recordsStore = tx.objectStore(INDEXEDDB_RECORDS_STORE);
+            const legacyStore = tx.objectStore(INDEXEDDB_STORE);
+
+            const clear = recordsStore.clear();
+            clear.onerror = () => reject(clear.error);
+            clear.onsuccess = () => {
+                for (const record of records) {
+                    if (!record?.id) continue;
+                    recordsStore.put(record);
+                }
+                legacyStore.delete(SNAPSHOT_KEY);
+                legacyStore.delete(DB_FILENAME);
+            };
+
+            tx.oncomplete = () => {
+                console.log(`[IndexedDB] Saved ${records.length} records to structured store.`);
+                resolve();
+            };
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error);
+        };
+        req.onerror = () => reject(req.error);
+    });
+}
+
+export async function clearLegacySnapshot(): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(INDEXEDDB_NAME, INDEXEDDB_VERSION);
+        req.onupgradeneeded = (e: any) => {
+            const db = e.target.result as IDBDatabase;
+            if (!db.objectStoreNames.contains(INDEXEDDB_STORE)) db.createObjectStore(INDEXEDDB_STORE);
+            if (!db.objectStoreNames.contains(INDEXEDDB_RECORDS_STORE)) db.createObjectStore(INDEXEDDB_RECORDS_STORE, { keyPath: "id" });
+        };
+        req.onsuccess = (e: any) => {
+            const db = e.target.result as IDBDatabase;
+            const tx = db.transaction([INDEXEDDB_STORE], "readwrite");
+            const store = tx.objectStore(INDEXEDDB_STORE);
+            store.delete(SNAPSHOT_KEY);
+            store.delete(DB_FILENAME);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error);
         };
         req.onerror = () => reject(req.error);
     });
