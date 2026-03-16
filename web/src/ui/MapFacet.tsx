@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { cellToBoundary, gridDisk } from "h3-js";
+import { DUCKDB_RESTORED_EVENT } from "../duckdb/dbInit";
 import { databaseService } from "../services/DatabaseService";
 import { zoomToResolution } from "../utils/h3Resolution";
 
@@ -294,6 +295,14 @@ export const MapFacet: React.FC<MapFacetProps> = ({ bbox, onChange, q = "", filt
             map.off("moveend", fetchHexes);
             map.off("zoomend", fetchHexes);
         };
+    }, [fetchHexes]);
+
+    useEffect(() => {
+        const handleRestored = () => {
+            void fetchHexes();
+        };
+        window.addEventListener(DUCKDB_RESTORED_EVENT, handleRestored);
+        return () => window.removeEventListener(DUCKDB_RESTORED_EVENT, handleRestored);
     }, [fetchHexes]);
 
     // On query/filters change with no explicit bbox, fetch global hex coverage

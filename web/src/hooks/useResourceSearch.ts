@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { Resource } from "../aardvark/model";
 import { FacetedSearchRequest, facetedSearch } from "../duckdb/duckdbClient";
+import { DUCKDB_RESTORED_EVENT } from "../duckdb/dbInit";
 import { useUrlState } from "./useUrlState";
 
 export interface FacetConfig {
@@ -192,6 +193,14 @@ export function useResourceSearch(facetsConfig: FacetConfig[], pageSize: number 
 
     useEffect(() => {
         fetchData();
+    }, [fetchData]);
+
+    useEffect(() => {
+        const handleRestored = () => {
+            void fetchData();
+        };
+        window.addEventListener(DUCKDB_RESTORED_EVENT, handleRestored);
+        return () => window.removeEventListener(DUCKDB_RESTORED_EVENT, handleRestored);
     }, [fetchData]);
 
     const toggleFacet = useCallback((field: string, value: string, mode: 'include' | 'exclude' = 'include') => {

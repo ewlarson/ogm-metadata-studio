@@ -183,6 +183,11 @@ export async function importCsv(file: File): Promise<{ success: boolean, message
 }
 
 type JsonImportMode = "upsert" | "replace";
+interface JsonIngestOptions {
+    skipSave?: boolean;
+    connOverride?: duckdb.AsyncDuckDBConnection;
+    onProgress?: (processed: number, total: number) => void;
+}
 
 function sqlLiteral(value: unknown): string {
     if (value === undefined || value === null) return "NULL";
@@ -223,10 +228,9 @@ function normalizeRecord(record: any, uriToKey: Map<string, string>) {
     return { resource, distributions, h3Values, content: searchContentFor(resource) };
 }
 
-async function ingestJsonData(recordsInput: any[], options: { skipSave?: boolean } = {}, mode: JsonImportMode = "upsert"): Promise<number> {
-    const ctx = await getDuckDbContext();
-    if (!ctx) throw new Error("DB not available");
-    const { conn } = ctx;
+async function ingestJsonData(recordsInput: any[], options: JsonIngestOptions = {}, mode: JsonImportMode = "upsert"): Promise<number> {
+    const conn = options.connOverride ?? (await getDuckDbContext())?.conn;
+    if (!conn) throw new Error("DB not available");
 
     const uriToKey = new Map<string, string>();
     for (const [key, uri] of Object.entries(REFERENCE_URI_MAPPING)) {
@@ -260,6 +264,8 @@ async function ingestJsonData(recordsInput: any[], options: { skipSave?: boolean
             }
         }
 
+        let processed = 0;
+
         for (const group of chunk(normalized, 100)) {
             const values = group.map(({ resource, h3Values }) => {
                 const scalarVals = scalarColumns.map((field) => {
@@ -270,6 +276,8 @@ async function ingestJsonData(recordsInput: any[], options: { skipSave?: boolean
                 return `(${[...scalarVals, ...h3Literals].join(",")})`;
             }).join(",");
             await conn.query(`INSERT INTO resources (${resourceColumns.map((c) => `"${c}"`).join(",")}) VALUES ${values}`);
+            processed += group.length;
+            options.onProgress?.(processed, normalized.length);
         }
 
         for (const idGroup of chunk(ids, 500)) {
@@ -352,12 +360,12 @@ async function ingestJsonData(recordsInput: any[], options: { skipSave?: boolean
     return normalized.length;
 }
 
-export async function importJsonData(json: any, options: { skipSave?: boolean } = {}): Promise<number> {
+export async function importJsonData(json: any, options: JsonIngestOptions = {}): Promise<number> {
     const records = Array.isArray(json) ? json : [json];
     return ingestJsonData(records, options, "upsert");
 }
 
-export async function replaceAllJsonData(json: any[], options: { skipSave?: boolean } = {}): Promise<number> {
+export async function replaceAllJsonData(json: any[], options: JsonIngestOptions = {}): Promise<number> {
     return ingestJsonData(json, options, "replace");
 }
 
