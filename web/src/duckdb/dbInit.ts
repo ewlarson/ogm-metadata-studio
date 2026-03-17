@@ -4,7 +4,8 @@ import wasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import mvpWorkerUrl from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url";
 import mvpWasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
 import type { AardvarkJson } from "../aardvark/model";
-import { ensureSchema, DISTRIBUTIONS_TABLE, RESOURCES_TABLE } from "./schema";
+import { ensureSchema, DISTRIBUTIONS_TABLE, RESOURCES_MV_TABLE, RESOURCES_TABLE } from "./schema";
+import { REPEATABLE_STRING_FIELDS } from "../aardvark/model";
 import { backfillCentroidAndH3 } from "./backfill";
 
 export const DB_FILENAME = "records.duckdb";
@@ -108,7 +109,7 @@ async function startBackgroundRestore(db: duckdb.AsyncDuckDB): Promise<void> {
 async function loadInitialDataFromParquet(
     db: duckdb.AsyncDuckDB,
     conn: duckdb.AsyncDuckDBConnection
-): Promise<void> {
+): Promise<boolean> {
     try {
         // Try to load resources from a published Parquet artifact if present.
         // This is especially useful on GitHub Pages / first load / incognito where IndexedDB is empty.
@@ -139,7 +140,7 @@ async function loadInitialDataFromParquet(
         ]);
 
         if (!resourcesBuf && !distributionsBuf) {
-            return;
+            return false;
         }
 
         const tasks: Promise<void>[] = [];
@@ -172,8 +173,72 @@ async function loadInitialDataFromParquet(
 
         await Promise.all(tasks);
         console.log("[Parquet bootstrap] Loaded initial data from published Parquet artifacts.");
+        return true;
     } catch (e) {
         console.warn("[Parquet bootstrap] Failed to load initial data from Parquet.", e);
+        return false;
+    }
+}
+
+async function rebuildDerivedIndexesFromResources(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
+    try {
+        const res = await conn.query(`SELECT * FROM ${RESOURCES_TABLE}`);
+        const rows = res.toArray() as any[];
+        if (rows.length === 0) return;
+
+        await conn.query(`DELETE FROM ${RESOURCES_MV_TABLE}`);
+        await conn.query(`DELETE FROM search_index`);
+
+        const mvValues: string[] = [];
+        const searchValues: string[] = [];
+
+        for (const row of rows) {
+            const id = row.id;
+            if (!id) continue;
+            const safeId = String(id).replace(/'/g, "''");
+
+            for (const field of REPEATABLE_STRING_FIELDS) {
+                const raw = (row as any)[field];
+                const values = Array.isArray(raw) ? raw : raw != null ? [raw] : [];
+                for (const value of values) {
+                    const s = String(value);
+                    if (!s) continue;
+                    const safeField = field.replace(/'/g, "''");
+                    const safeVal = s.replace(/'/g, "''");
+                    mvValues.push(`('${safeId}','${safeField}','${safeVal}')`);
+                }
+            }
+
+            const parts: string[] = [];
+            if (row.dct_title_s) parts.push(String(row.dct_title_s));
+            if (Array.isArray(row.dct_description_sm)) parts.push(...row.dct_description_sm.map((v: any) => String(v)));
+            if (Array.isArray(row.dct_subject_sm)) parts.push(...row.dct_subject_sm.map((v: any) => String(v)));
+            if (Array.isArray(row.dcat_keyword_sm)) parts.push(...row.dcat_keyword_sm.map((v: any) => String(v)));
+            const content = parts.join(" ").replace(/\n/g, " ");
+            const safeContent = content.replace(/'/g, "''");
+            searchValues.push(`('${safeId}','${safeContent}')`);
+        }
+
+        const chunkSize = 500;
+        for (let i = 0; i < mvValues.length; i += chunkSize) {
+            const chunk = mvValues.slice(i, i + chunkSize);
+            if (chunk.length === 0) continue;
+            await conn.query(
+                `INSERT INTO ${RESOURCES_MV_TABLE} (id, field, val) VALUES ${chunk.join(",")}`
+            );
+        }
+
+        for (let i = 0; i < searchValues.length; i += chunkSize) {
+            const chunk = searchValues.slice(i, i + chunkSize);
+            if (chunk.length === 0) continue;
+            await conn.query(
+                `INSERT INTO search_index (id, content) VALUES ${chunk.join(",")}`
+            );
+        }
+
+        console.log("[Parquet bootstrap] Rebuilt resources_mv and search_index from resources.");
+    } catch (e) {
+        console.warn("[Parquet bootstrap] Failed to rebuild derived indexes from resources.", e);
     }
 }
 
@@ -196,9 +261,14 @@ export async function getDuckDbContext(): Promise<DuckDbContext | null> {
             await conn.query("INSTALL spatial; LOAD spatial;");
 
             // First, try to bootstrap from any published Parquet artifacts.
-            await loadInitialDataFromParquet(db, conn);
+            const loadedFromParquet = await loadInitialDataFromParquet(db, conn);
             // Then, ensure the schema is fully up to date (adds any missing columns/indexes).
             await ensureSchema(conn);
+            // If we bootstrapped from Parquet, rebuild resources_mv and search_index
+            // so search and multivalue facets work.
+            if (loadedFromParquet) {
+                await rebuildDerivedIndexesFromResources(conn);
+            }
             void startBackgroundRestore(db);
             return { db, conn };
         } catch (err: any) {
