@@ -1,10 +1,10 @@
 import { getDuckDbContext } from "./dbInit";
 import { Resource, resourceToJson, SCALAR_FIELDS, REPEATABLE_STRING_FIELDS, CSV_HEADER_MAPPING } from "../aardvark/model";
-import { queryResources, compileFacetedWhere, fetchResourcesByIds } from "./queries";
+import { queryAllDistributions, queryResources, compileFacetedWhere, fetchResourcesByIds } from "./queries";
 import { FacetedSearchRequest } from "./types";
 import JSZip from "jszip";
 
-export async function generateParquet(resources: Resource[]): Promise<Uint8Array | null> {
+export async function generateParquetFromRows(rows: unknown[]): Promise<Uint8Array | null> {
     const ctx = await getDuckDbContext();
     if (!ctx) return null;
     const { db, conn } = ctx;
@@ -13,7 +13,7 @@ export async function generateParquet(resources: Resource[]): Promise<Uint8Array
     const tempParquet = `temp_export_${Date.now()}.parquet`;
 
     try {
-        await db.registerFileText(tempJson, JSON.stringify(resources));
+        await db.registerFileText(tempJson, JSON.stringify(rows));
         await conn.query(`COPY (SELECT * FROM read_json_auto('${tempJson}')) TO '${tempParquet}' (FORMAT PARQUET)`);
         const buffer = await db.copyFileToBuffer(tempParquet);
 
@@ -26,6 +26,15 @@ export async function generateParquet(resources: Resource[]): Promise<Uint8Array
         console.warn("Failed to generate parquet", e);
         return null;
     }
+}
+
+export async function generateParquet(resources: Resource[]): Promise<Uint8Array | null> {
+    return generateParquetFromRows(resources.map((resource) => resourceToJson(resource)));
+}
+
+export async function generateDistributionsParquet(): Promise<Uint8Array | null> {
+    const distributions = await queryAllDistributions();
+    return generateParquetFromRows(distributions);
 }
 
 export async function zipResources(resources: Resource[], parquetBuffer: Uint8Array | null = null): Promise<Blob> {

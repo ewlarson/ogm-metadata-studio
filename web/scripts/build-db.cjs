@@ -34,6 +34,11 @@ async function buildDatabase() {
     });
 
     try {
+        if (fs.existsSync(OUTPUT_FILE) && fs.statSync(OUTPUT_FILE).size > 0) {
+            console.log(`Using existing published parquet at ${OUTPUT_FILE}.`);
+            return;
+        }
+
         const globPattern = path.join(METADATA_DIR, '**/*.json');
         console.log(`Glob pattern: ${globPattern}`);
         console.log(`Preferred source file: ${SINGLE_JSON_FILE}`);

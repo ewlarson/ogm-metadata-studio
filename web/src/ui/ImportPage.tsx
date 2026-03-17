@@ -135,9 +135,9 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0, onImp
 
         try {
             setLoading(true);
-            setStatus("Writing current catalog into metadata/resources.json and metadata/resource_distributions.json...");
+            setStatus("Writing current catalog into web/public/resources.parquet and web/public/resource_distributions.parquet...");
             const result = await publishCurrentDataToRepoRoot(repoRootHandle);
-            const readyMessage = `Publish ready. Wrote ${result.resourceCount} records into ${result.metadataDirName}/${result.resourceFileName} and ${result.distributionCount} distributions into ${result.metadataDirName}/${result.distributionsFileName}. Commit and push those files so everyone sees the same dataset on GitHub Pages.`;
+            const readyMessage = `Publish ready. Wrote ${result.resourceCount} records into ${result.publicDirPath}/${result.resourceFileName} and ${result.distributionCount} distributions into ${result.publicDirPath}/${result.distributionsFileName}. Commit and push those files so everyone sees the same dataset on GitHub Pages.`;
             setStatus(readyMessage);
             window.alert(readyMessage);
         } catch (err: any) {
@@ -257,10 +257,10 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0, onImp
             <div className="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 p-6 shadow-sm">
                 <h2 className="text-lg font-semibold mb-4 text-slate-900 dark:text-slate-200">3. Publish Workflow</h2>
                 <p className="text-slate-500 dark:text-slate-400 mb-6 text-sm">
-                    Choose your local repository root and write the current dataset into <code>metadata/resources.json</code>
-                    and <code>metadata/resource_distributions.json</code>.
+                    Choose your local repository root and write the current dataset into <code>web/public/resources.parquet</code>
+                    and <code>web/public/resource_distributions.parquet</code>.
                     After that, all you need to do is commit and push those files. GitHub Pages will rebuild
-                    <code>resources.parquet</code> during the normal site build.
+                    the site with those published Parquet artifacts.
                 </p>
 
                 <div className="space-y-4">
@@ -269,7 +269,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0, onImp
                             <div>
                                 <h3 className="text-sm font-medium text-slate-900 dark:text-slate-200">Target Repository Folder</h3>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                    Pick the local repo root that contains the <code>metadata/</code> folder you want to publish.
+                                    Pick the local repo root that contains the <code>web/public/</code> folder you want to publish.
                                 </p>
                             </div>
                             <button
@@ -290,8 +290,8 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0, onImp
                     <div className="rounded border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20 p-4">
                         <h3 className="text-sm font-medium text-slate-900 dark:text-slate-200">Write Publishable Metadata</h3>
                         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">
-                            This writes the current in-browser dataset to <code>metadata/resources.json</code> plus
-                            <code>metadata/resource_distributions.json</code>.
+                            This writes the current in-browser dataset to <code>web/public/resources.parquet</code> plus
+                            <code>web/public/resource_distributions.parquet</code>.
                             Once complete, commit and push both files so everyone sees the same dataset on GitHub Pages.
                         </p>
                         <button
@@ -299,7 +299,7 @@ export const ImportPage: React.FC<ImportPageProps> = ({ resourceCount = 0, onImp
                             disabled={loading || !repoRootHandle || resourceCount === 0}
                             className="w-full bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-500 disabled:opacity-50 text-sm font-medium transition-colors"
                         >
-                            {loading ? "Publishing..." : "Prepare metadata JSONs for commit"}
+                            {loading ? "Publishing..." : "Prepare Parquet files for commit"}
                         </button>
                     </div>
                 </div>
