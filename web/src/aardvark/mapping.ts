@@ -1,7 +1,6 @@
 import {
   AardvarkJson,
   Distribution,
-  REFERENCE_URI_MAPPING,
   REPEATABLE_STRING_FIELDS,
   Resource,
   SCALAR_FIELDS,
@@ -116,9 +115,7 @@ export function resourceFromRow(
     data[field] = pipeSplit(row[field]);
   }
 
-  if (row["dct_references_s"]) {
-    data["dct_references_s"] = String(row["dct_references_s"]);
-  } else if (distributionsForResource.length > 0) {
+  if (distributionsForResource.length > 0) {
     // Reconstruct dct_references_s
     const refs: Record<string, any> = {};
     const grouped = new Map<string, Distribution[]>();
@@ -132,18 +129,17 @@ export function resourceFromRow(
 
     // 2. Build JSON
     for (const [key, dists] of grouped.entries()) {
-      const referenceUri = REFERENCE_URI_MAPPING[key] || key;
       const isComplex = dists.length > 1 || dists.some(d => !!d.label);
 
       if (isComplex) {
         // Array of objects
-        refs[referenceUri] = dists.map(d => ({
+        refs[key] = dists.map(d => ({
           url: d.url,
           label: d.label // undefined if missing, which JSON.stringify drops
         }));
       } else {
         // Single simple URL (Backward Compatibility)
-        refs[referenceUri] = dists[0].url;
+        refs[key] = dists[0].url;
       }
     }
 
@@ -203,15 +199,14 @@ export function buildDctReferencesS(
   }
 
   for (const [key, dists] of grouped.entries()) {
-    const referenceUri = REFERENCE_URI_MAPPING[key] || key;
     const isComplex = dists.length > 1 || dists.some(d => !!d.label);
     if (isComplex) {
-      refs[referenceUri] = dists.map(d => ({
+      refs[key] = dists.map(d => ({
         url: d.url,
         label: d.label
       }));
     } else {
-      refs[referenceUri] = dists[0].url;
+      refs[key] = dists[0].url;
     }
   }
 

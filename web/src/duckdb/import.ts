@@ -244,7 +244,7 @@ async function ingestJsonData(recordsInput: any[], options: JsonIngestOptions = 
     if (normalized.length === 0) return 0;
 
     const ids = normalized.map(({ resource }) => resource.id);
-    const scalarColumns = SCALAR_FIELDS;
+    const scalarColumns = SCALAR_FIELDS.filter((field) => field !== "dct_references_s");
     const resourceColumns = [...scalarColumns, ...H3_RES_COLUMNS];
 
     await conn.query("BEGIN TRANSACTION");
@@ -375,30 +375,32 @@ function extractDistributions(record: any, uriToKey: Map<string, string>): Distr
         try {
             const refs = JSON.parse(record.dct_references_s);
             for (const [uri, value] of Object.entries(refs)) {
-                const relKey = uriToKey.get(uri) || String(uri);
-                const items = Array.isArray(value) ? value : [value];
-                for (const item of items) {
-                    let finalUrl = "";
-                    let label: string | undefined = undefined;
-                    if (typeof item === 'string') {
-                        finalUrl = item;
-                    } else if (typeof item === 'object' && item !== null) {
-                        if ('url' in item) {
-                            finalUrl = String((item as any).url);
-                            if ('label' in item) label = String((item as any).label);
+                const relKey = uriToKey.get(uri);
+                if (relKey) {
+                    const items = Array.isArray(value) ? value : [value];
+                    for (const item of items) {
+                        let finalUrl = "";
+                        let label: string | undefined = undefined;
+                        if (typeof item === 'string') {
+                            finalUrl = item;
+                        } else if (typeof item === 'object' && item !== null) {
+                            if ('url' in item) {
+                                finalUrl = String((item as any).url);
+                                if ('label' in item) label = String((item as any).label);
+                            } else {
+                                finalUrl = JSON.stringify(item);
+                            }
                         } else {
-                            finalUrl = JSON.stringify(item);
+                            finalUrl = String(item);
                         }
-                    } else {
-                        finalUrl = String(item);
-                    }
-                    if (finalUrl) {
-                        distributions.push({
-                            resource_id: record.id,
-                            relation_key: relKey,
-                            url: finalUrl,
-                            label: label
-                        });
+                        if (finalUrl) {
+                            distributions.push({
+                                resource_id: record.id,
+                                relation_key: relKey,
+                                url: finalUrl,
+                                label: label
+                            });
+                        }
                     }
                 }
             }

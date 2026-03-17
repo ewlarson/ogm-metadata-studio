@@ -4,7 +4,6 @@ import wasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import mvpWorkerUrl from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url";
 import mvpWasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
 import type { AardvarkJson } from "../aardvark/model";
-import { withBasePath } from "../utils/basePath";
 import { ensureSchema } from "./schema";
 import { backfillCentroidAndH3 } from "./backfill";
 
@@ -57,7 +56,6 @@ async function startBackgroundRestore(db: duckdb.AsyncDuckDB): Promise<void> {
 
     restorePromise = (async () => {
         let records = await loadRecordsFromIndexedDB();
-        let restoreSource = "IndexedDB records";
         if (records.length === 0) {
             const snapshot = await loadSnapshotFromIndexedDB();
             if (snapshot !== null && snapshot.length > 0) {
@@ -65,13 +63,7 @@ async function startBackgroundRestore(db: duckdb.AsyncDuckDB): Promise<void> {
                 await replaceRecordsInIndexedDB(snapshot);
                 await clearLegacySnapshot();
                 records = snapshot;
-                restoreSource = "legacy IndexedDB snapshot";
             }
-        }
-
-        if (records.length === 0) {
-            records = await loadPublishedRecordsFromParquet(db);
-            restoreSource = "published resources.parquet";
         }
 
         if (records.length === 0) {
@@ -80,7 +72,7 @@ async function startBackgroundRestore(db: duckdb.AsyncDuckDB): Promise<void> {
             return;
         }
 
-        console.log(`[DuckDB] Restoring ${records.length} resources from ${restoreSource}...`);
+        console.log(`[IndexedDB] Restoring ${records.length} resources from IndexedDB records...`);
         updateRestoreStatus({ inProgress: true, processed: 0, total: records.length });
 
         const restoreConn = await db.connect();
@@ -111,51 +103,6 @@ async function startBackgroundRestore(db: duckdb.AsyncDuckDB): Promise<void> {
     });
 
     return restorePromise;
-}
-
-async function loadPublishedRecordsFromParquet(db: duckdb.AsyncDuckDB): Promise<AardvarkJson[]> {
-    const parquetUrl = withBasePath("/resources.parquet");
-
-    try {
-        const response = await fetch(parquetUrl, { cache: "no-cache" });
-        if (!response.ok) {
-            if (response.status !== 404) {
-                console.warn(`[Parquet] Failed to fetch ${parquetUrl}: ${response.status} ${response.statusText}`);
-            }
-            return [];
-        }
-
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.byteLength === 0) {
-            console.warn("[Parquet] Published resources.parquet is empty.");
-            return [];
-        }
-
-        const parquetName = "published_resources.parquet";
-        await db.registerFileBuffer(parquetName, bytes);
-
-        const conn = await db.connect();
-        try {
-            const result = await conn.query(`SELECT * FROM read_parquet('${parquetName}')`);
-            const rows = result.toArray();
-            console.log(`[Parquet] Loaded ${rows.length} published resources from ${parquetUrl}.`);
-            return rows as AardvarkJson[];
-        } finally {
-            try {
-                await conn.close();
-            } catch {
-                // ignore
-            }
-            try {
-                await db.dropFile(parquetName);
-            } catch {
-                // ignore
-            }
-        }
-    } catch (error) {
-        console.warn("[Parquet] Failed to load published resources.parquet", error);
-        return [];
-    }
 }
 
 // Initialize DuckDB
