@@ -65,7 +65,14 @@ export async function fetchResourcesByIds(conn: duckdb.AsyncDuckDBConnection, id
         const r: any = { ...row };
         const mvs = mvMap.get(r.id) || [];
         for (const m of mvs) {
-            if (!r[m.field]) r[m.field] = [];
+            const current = r[m.field];
+            if (!Array.isArray(current)) {
+                if (current === null || current === undefined) {
+                    r[m.field] = [];
+                } else {
+                    r[m.field] = [current];
+                }
+            }
             r[m.field].push(m.val);
         }
         const resObj = resourceFromRow(r, distMap.get(r.id) || []);
