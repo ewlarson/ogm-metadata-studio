@@ -105,16 +105,21 @@ async function startBackgroundRestore(db: duckdb.AsyncDuckDB): Promise<void> {
     return restorePromise;
 }
 
-async function loadInitialDataFromParquet(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
+async function loadInitialDataFromParquet(
+    db: duckdb.AsyncDuckDB,
+    conn: duckdb.AsyncDuckDBConnection
+): Promise<void> {
     try {
         // Try to load resources from a published Parquet artifact if present.
         // This is especially useful on GitHub Pages / first load / incognito where IndexedDB is empty.
-        const base =
-            (import.meta as any).env?.BASE_URL ||
-            (typeof window !== "undefined" ? (window as any).__APP_BASE__ || "/" : "/");
+        const basePath = (import.meta as any).env?.BASE_URL || "/";
+        const absoluteBase =
+            typeof window !== "undefined"
+                ? new URL(basePath, window.location.href).toString()
+                : basePath;
 
-        const resourcesUrl = new URL("resources.parquet", base,).toString();
-        const distributionsUrl = new URL("resource_distributions.parquet", base,).toString();
+        const resourcesUrl = new URL("resources.parquet", absoluteBase).toString();
+        const distributionsUrl = new URL("resource_distributions.parquet", absoluteBase).toString();
 
         const fetchParquet = async (url: string): Promise<Uint8Array | null> => {
             try {
@@ -137,29 +142,17 @@ async function loadInitialDataFromParquet(conn: duckdb.AsyncDuckDBConnection): P
             return;
         }
 
-        const db = (conn as any).db as duckdb.AsyncDuckDB | undefined;
-        const duckDb: duckdb.AsyncDuckDB =
-            db ||
-            // Fallback: reach the DB via a private accessor if available
-            (conn as any)._db ||
-            // As a last resort, do nothing; we need the db instance to register buffers.
-            null as any;
-
-        if (!duckDb) {
-            console.warn("[Parquet bootstrap] Unable to access DuckDB instance from connection.");
-            return;
-        }
-
         const tasks: Promise<void>[] = [];
 
         if (resourcesBuf) {
             tasks.push(
                 (async () => {
                     const fileName = "bootstrap_resources.parquet";
-                    await duckDb.registerFileBuffer(fileName, resourcesBuf);
+                    await db.registerFileBuffer(fileName, resourcesBuf);
                     await conn.query(
                         `INSERT INTO ${RESOURCES_TABLE} SELECT * FROM read_parquet('${fileName}')`,
                     );
+                    await db.dropFile(fileName);
                 })(),
             );
         }
@@ -168,10 +161,11 @@ async function loadInitialDataFromParquet(conn: duckdb.AsyncDuckDBConnection): P
             tasks.push(
                 (async () => {
                     const fileName = "bootstrap_distributions.parquet";
-                    await duckDb.registerFileBuffer(fileName, distributionsBuf);
+                    await db.registerFileBuffer(fileName, distributionsBuf);
                     await conn.query(
                         `INSERT INTO ${DISTRIBUTIONS_TABLE} SELECT * FROM read_parquet('${fileName}')`,
                     );
+                    await db.dropFile(fileName);
                 })(),
             );
         }
@@ -202,7 +196,7 @@ export async function getDuckDbContext(): Promise<DuckDbContext | null> {
             await conn.query("INSTALL spatial; LOAD spatial;");
 
             await ensureSchema(conn);
-            await loadInitialDataFromParquet(conn);
+            await loadInitialDataFromParquet(db, conn);
             void startBackgroundRestore(db);
             return { db, conn };
         } catch (err: any) {
