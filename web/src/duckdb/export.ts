@@ -28,6 +28,26 @@ export async function generateParquet(resources: Resource[]): Promise<Uint8Array
     }
 }
 
+export async function generateDistributionsParquet(): Promise<Uint8Array | null> {
+    const ctx = await getDuckDbContext();
+    if (!ctx) return null;
+    const { db, conn } = ctx;
+
+    const tempParquet = `temp_distributions_${Date.now()}.parquet`;
+
+    try {
+        await conn.query(`COPY (SELECT * FROM distributions) TO '${tempParquet}' (FORMAT PARQUET)`);
+        const buffer = await db.copyFileToBuffer(tempParquet);
+
+        await db.dropFile(tempParquet);
+
+        return buffer;
+    } catch (e) {
+        console.warn("Failed to generate distributions parquet", e);
+        return null;
+    }
+}
+
 export async function zipResources(resources: Resource[], parquetBuffer: Uint8Array | null = null): Promise<Blob> {
     const zip = new JSZip();
     let count = 0;

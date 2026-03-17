@@ -530,6 +530,19 @@ export async function getDistributionsForResource(resourceId: string): Promise<D
 
 export const queryDistributionsForResource = getDistributionsForResource;
 
+export async function queryAllDistributions(): Promise<Distribution[]> {
+    const ctx = await getDuckDbContext();
+    if (!ctx) return [];
+    const res = await ctx.conn.query(`SELECT * FROM distributions`);
+
+    return res.toArray().map((r: any) => ({
+        resource_id: String(r.resource_id),
+        relation_key: String(r.relation_key),
+        url: String(r.url),
+        label: r.label
+    }));
+}
+
 export async function hasStaticMap(id: string): Promise<boolean> {
     const ctx = await getDuckDbContext();
     if (!ctx) return false;
