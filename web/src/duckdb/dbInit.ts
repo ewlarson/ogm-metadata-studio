@@ -150,7 +150,7 @@ async function loadInitialDataFromParquet(
                     const fileName = "bootstrap_resources.parquet";
                     await db.registerFileBuffer(fileName, resourcesBuf);
                     await conn.query(
-                        `INSERT INTO ${RESOURCES_TABLE} SELECT * FROM read_parquet('${fileName}')`,
+                        `CREATE OR REPLACE TABLE ${RESOURCES_TABLE} AS SELECT * FROM read_parquet('${fileName}')`,
                     );
                     await db.dropFile(fileName);
                 })(),
@@ -163,7 +163,7 @@ async function loadInitialDataFromParquet(
                     const fileName = "bootstrap_distributions.parquet";
                     await db.registerFileBuffer(fileName, distributionsBuf);
                     await conn.query(
-                        `INSERT INTO ${DISTRIBUTIONS_TABLE} SELECT * FROM read_parquet('${fileName}')`,
+                        `CREATE OR REPLACE TABLE ${DISTRIBUTIONS_TABLE} AS SELECT * FROM read_parquet('${fileName}')`,
                     );
                     await db.dropFile(fileName);
                 })(),
