@@ -195,8 +195,10 @@ export async function getDuckDbContext(): Promise<DuckDbContext | null> {
             await conn.query("INSTALL fts; LOAD fts;");
             await conn.query("INSTALL spatial; LOAD spatial;");
 
-            await ensureSchema(conn);
+            // First, try to bootstrap from any published Parquet artifacts.
             await loadInitialDataFromParquet(db, conn);
+            // Then, ensure the schema is fully up to date (adds any missing columns/indexes).
+            await ensureSchema(conn);
             void startBackgroundRestore(db);
             return { db, conn };
         } catch (err: any) {

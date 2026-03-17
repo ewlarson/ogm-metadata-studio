@@ -21,6 +21,13 @@ export async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
     const resInfo = await conn.query(`DESCRIBE ${RESOURCES_TABLE}`);
     const resCols = resInfo.toArray().map((r: any) => r.column_name);
 
+    // Backfill any missing scalar columns that might not be present in older Parquet artifacts.
+    for (const col of SCALAR_FIELDS) {
+        if (!resCols.includes(col)) {
+            await conn.query(`ALTER TABLE ${RESOURCES_TABLE} ADD COLUMN "${col}" VARCHAR`);
+        }
+    }
+
     if (!resCols.includes('geom')) {
         await conn.query(`ALTER TABLE ${RESOURCES_TABLE} ADD COLUMN geom GEOMETRY`);
     }
