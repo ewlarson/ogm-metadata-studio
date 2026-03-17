@@ -187,6 +187,8 @@ interface JsonIngestOptions {
     skipSave?: boolean;
     connOverride?: duckdb.AsyncDuckDBConnection;
     onProgress?: (processed: number, total: number) => void;
+    /** When true, do not modify the `distributions` table during ingest. */
+    preserveDistributions?: boolean;
 }
 
 function sqlLiteral(value: unknown): string {
@@ -252,14 +254,18 @@ async function ingestJsonData(recordsInput: any[], options: JsonIngestOptions = 
         if (mode === "replace") {
             await conn.query("DELETE FROM resources");
             await conn.query("DELETE FROM resources_mv");
-            await conn.query("DELETE FROM distributions");
+            if (!options.preserveDistributions) {
+                await conn.query("DELETE FROM distributions");
+            }
             await conn.query("DELETE FROM search_index");
         } else {
             for (const idGroup of chunk(ids, 500)) {
                 const idList = idGroup.map(sqlLiteral).join(",");
                 await conn.query(`DELETE FROM resources WHERE id IN (${idList})`);
                 await conn.query(`DELETE FROM resources_mv WHERE id IN (${idList})`);
-                await conn.query(`DELETE FROM distributions WHERE resource_id IN (${idList})`);
+                if (!options.preserveDistributions) {
+                    await conn.query(`DELETE FROM distributions WHERE resource_id IN (${idList})`);
+                }
                 await conn.query(`DELETE FROM search_index WHERE id IN (${idList})`);
             }
         }
@@ -327,15 +333,17 @@ async function ingestJsonData(recordsInput: any[], options: JsonIngestOptions = 
             await conn.query(`INSERT INTO resources_mv (id, field, val) VALUES ${group.join(",")}`);
         }
 
-        const distRows: string[] = [];
-        for (const { distributions } of normalized) {
-            for (const d of distributions) {
-                distRows.push(`(${sqlLiteral(d.resource_id)},${sqlLiteral(d.relation_key)},${sqlLiteral(d.url)},${sqlLiteral(d.label ?? null)})`);
+        if (!options.preserveDistributions) {
+            const distRows: string[] = [];
+            for (const { distributions } of normalized) {
+                for (const d of distributions) {
+                    distRows.push(`(${sqlLiteral(d.resource_id)},${sqlLiteral(d.relation_key)},${sqlLiteral(d.url)},${sqlLiteral(d.label ?? null)})`);
+                }
             }
-        }
-        for (const group of chunk(distRows, 1000)) {
-            if (group.length === 0) continue;
-            await conn.query(`INSERT INTO distributions (resource_id, relation_key, url, label) VALUES ${group.join(",")}`);
+            for (const group of chunk(distRows, 1000)) {
+                if (group.length === 0) continue;
+                await conn.query(`INSERT INTO distributions (resource_id, relation_key, url, label) VALUES ${group.join(",")}`);
+            }
         }
 
         const searchRows = normalized.map(({ resource, content }) => `(${sqlLiteral(resource.id)},${sqlLiteral(content)})`);

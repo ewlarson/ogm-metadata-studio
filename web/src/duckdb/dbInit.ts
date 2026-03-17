@@ -83,6 +83,9 @@ async function startBackgroundRestore(db: duckdb.AsyncDuckDB): Promise<void> {
                 skipSave: true,
                 connOverride: restoreConn,
                 onProgress: (processed, total) => updateRestoreStatus({ inProgress: true, processed, total }),
+                // IndexedDB persistence currently stores resources only. Preserve any distributions
+                // loaded from Parquet (or created via other means) so we don't wipe them out.
+                preserveDistributions: true,
             });
         } finally {
             try {
