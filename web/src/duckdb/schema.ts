@@ -46,6 +46,17 @@ export async function ensureSchema(conn: duckdb.AsyncDuckDBConnection) {
     // 3. Distributions Table
     await conn.query(`CREATE TABLE IF NOT EXISTS ${DISTRIBUTIONS_TABLE} (resource_id VARCHAR, relation_key VARCHAR, url VARCHAR, label VARCHAR)`);
 
+    // Ensure distributions table has the full expected schema (handle older Parquet with only 3 columns)
+    try {
+        const distInfo = await conn.query(`DESCRIBE ${DISTRIBUTIONS_TABLE}`);
+        const distCols = distInfo.toArray().map((r: any) => r.column_name);
+        if (!distCols.includes("label")) {
+            await conn.query(`ALTER TABLE ${DISTRIBUTIONS_TABLE} ADD COLUMN label VARCHAR`);
+        }
+    } catch (e) {
+        console.warn("Distributions schema evolution failed", e);
+    }
+
     // 4. Image Service / Thumbnail Cache
     await conn.query(`CREATE TABLE IF NOT EXISTS ${IMAGE_SERVICE_TABLE} (id VARCHAR, data VARCHAR, last_updated UBIGINT)`);
 
