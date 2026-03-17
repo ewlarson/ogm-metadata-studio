@@ -83,9 +83,9 @@ export const DashboardResultsList: React.FC<DashboardResultsListProps> = ({ reso
                                 <div className="flex flex-col gap-2 w-full">
                                     <div className="flex flex-wrap gap-2 items-center">
                                         {/* Class */}
-                                        {r.gbl_resourceClass_sm?.slice(0, 3).map(c => (
+                                        {r.gbl_resourceClass_sm?.slice(0, 3).map((c, idx) => (
                                             <FacetTag
-                                                key={c}
+                                                key={`${r.id}:gbl_resourceClass_sm:${c || "<empty>"}:${idx}`}
                                                 field="gbl_resourceClass_sm"
                                                 value={c}
                                                 label="Class"
@@ -104,9 +104,9 @@ export const DashboardResultsList: React.FC<DashboardResultsListProps> = ({ reso
                                         )}
 
                                         {/* Subjects */}
-                                        {r.dct_subject_sm?.slice(0, 5).map(s => (
+                                        {r.dct_subject_sm?.slice(0, 5).map((s, idx) => (
                                             <FacetTag
-                                                key={s}
+                                                key={`${r.id}:dct_subject_sm:${s || "<empty>"}:${idx}`}
                                                 field="dct_subject_sm"
                                                 value={s}
                                                 label="Subject"
@@ -118,9 +118,9 @@ export const DashboardResultsList: React.FC<DashboardResultsListProps> = ({ reso
                                         )}
 
                                         {/* Keywords */}
-                                        {r.dcat_keyword_sm?.slice(0, 5).map(k => (
+                                        {r.dcat_keyword_sm?.slice(0, 5).map((k, idx) => (
                                             <FacetTag
-                                                key={k}
+                                                key={`${r.id}:dcat_keyword_sm:${k || "<empty>"}:${idx}`}
                                                 field="dcat_keyword_sm"
                                                 value={k}
                                                 label="Keyword"

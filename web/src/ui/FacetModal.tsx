@@ -156,12 +156,12 @@ export const FacetModal: React.FC<FacetModalProps> = ({
                         <div className="flex items-center justify-center h-32 text-slate-400">Loading...</div>
                     ) : values.length > 0 ? (
                         <div className="flex flex-col space-y-0.5">
-                            {values.map(item => {
+                            {values.map((item, idx) => {
                                 const isIncluded = selectedValues.includes(item.value);
                                 const isExcluded = excludedValues.includes(item.value);
 
                                 return (
-                                    <div key={item.value} className="flex items-center justify-between px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-slate-800 group transition-colors">
+                                    <div key={`${field}:${item.value || "<empty>"}:${idx}`} className="flex items-center justify-between px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-slate-800 group transition-colors">
                                         <div className="flex items-center gap-3 min-w-0 flex-1">
                                             <button
                                                 onClick={() => onToggle(field, item.value, 'include')}

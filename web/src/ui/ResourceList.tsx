@@ -162,8 +162,8 @@ export const ResourceList: React.FC<ResourceListProps> = ({
                                     {r.dct_title_s || <span className="text-slate-400 italic">Untitled</span>}
                                 </td>
                                 <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                                    {r.gbl_resourceClass_sm.map(c => (
-                                        <span key={c} className="mr-1 inline-flex items-center rounded bg-gray-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-300 border border-gray-200 dark:border-slate-700">
+                                    {r.gbl_resourceClass_sm.map((c, idx) => (
+                                        <span key={`${r.id}:gbl_resourceClass_sm:${c || "<empty>"}:${idx}`} className="mr-1 inline-flex items-center rounded bg-gray-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-medium text-slate-700 dark:text-slate-300 border border-gray-200 dark:border-slate-700">
                                             {c}
                                         </span>
                                     ))}

@@ -86,9 +86,9 @@ export const ActiveFilterBar: React.FC<ActiveFilterBarProps> = ({
                     ? "hover:bg-red-200 dark:hover:bg-red-800 text-red-600 dark:text-red-400"
                     : "hover:bg-sky-200 dark:hover:bg-sky-800 text-sky-600 dark:text-sky-400";
 
-                return values.map((val) => (
+                return values.map((val, idx) => (
                     <span
-                        key={`${field}-${val}`}
+                        key={`${field}:${val || "<empty>"}:${idx}`}
                         className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium border ${styleClasses}`}
                     >
                         {isExclude && <span className="font-bold mr-0.5">NOT</span>}

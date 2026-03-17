@@ -415,12 +415,12 @@ const FacetSection: React.FC<{
 
             {isOpen && (
                 <ul className="space-y-1 mb-2">
-                    {data.map(item => {
+                    {data.map((item, idx) => {
                         const isIncluded = selectedValues.includes(item.value);
                         const isExcluded = excludedValues.includes(item.value);
 
                         return (
-                            <li key={item.value} className="flex items-center justify-between group/item">
+                            <li key={`${field}:${item.value || "<empty>"}:${idx}`} className="flex items-center justify-between group/item">
                                 <button
                                     onClick={() => onToggle(field, item.value, 'include')}
                                     className={`flex-1 flex items-center text-sm cursor-pointer py-0.5 text-left min-w-0 ${isIncluded
