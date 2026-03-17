@@ -4,7 +4,7 @@ import wasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
 import mvpWorkerUrl from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url";
 import mvpWasmUrl from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
 import type { AardvarkJson } from "../aardvark/model";
-import { ensureSchema } from "./schema";
+import { ensureSchema, DISTRIBUTIONS_TABLE, RESOURCES_TABLE } from "./schema";
 import { backfillCentroidAndH3 } from "./backfill";
 
 export const DB_FILENAME = "records.duckdb";
@@ -105,6 +105,84 @@ async function startBackgroundRestore(db: duckdb.AsyncDuckDB): Promise<void> {
     return restorePromise;
 }
 
+async function loadInitialDataFromParquet(conn: duckdb.AsyncDuckDBConnection): Promise<void> {
+    try {
+        // Try to load resources from a published Parquet artifact if present.
+        // This is especially useful on GitHub Pages / first load / incognito where IndexedDB is empty.
+        const base =
+            (import.meta as any).env?.BASE_URL ||
+            (typeof window !== "undefined" ? (window as any).__APP_BASE__ || "/" : "/");
+
+        const resourcesUrl = new URL("resources.parquet", base,).toString();
+        const distributionsUrl = new URL("resource_distributions.parquet", base,).toString();
+
+        const fetchParquet = async (url: string): Promise<Uint8Array | null> => {
+            try {
+                const res = await fetch(url, { cache: "no-cache" });
+                if (!res.ok) return null;
+                const buf = await res.arrayBuffer();
+                if (!buf.byteLength) return null;
+                return new Uint8Array(buf);
+            } catch {
+                return null;
+            }
+        };
+
+        const [resourcesBuf, distributionsBuf] = await Promise.all([
+            fetchParquet(resourcesUrl),
+            fetchParquet(distributionsUrl),
+        ]);
+
+        if (!resourcesBuf && !distributionsBuf) {
+            return;
+        }
+
+        const db = (conn as any).db as duckdb.AsyncDuckDB | undefined;
+        const duckDb: duckdb.AsyncDuckDB =
+            db ||
+            // Fallback: reach the DB via a private accessor if available
+            (conn as any)._db ||
+            // As a last resort, do nothing; we need the db instance to register buffers.
+            null as any;
+
+        if (!duckDb) {
+            console.warn("[Parquet bootstrap] Unable to access DuckDB instance from connection.");
+            return;
+        }
+
+        const tasks: Promise<void>[] = [];
+
+        if (resourcesBuf) {
+            tasks.push(
+                (async () => {
+                    const fileName = "bootstrap_resources.parquet";
+                    await duckDb.registerFileBuffer(fileName, resourcesBuf);
+                    await conn.query(
+                        `INSERT INTO ${RESOURCES_TABLE} SELECT * FROM read_parquet('${fileName}')`,
+                    );
+                })(),
+            );
+        }
+
+        if (distributionsBuf) {
+            tasks.push(
+                (async () => {
+                    const fileName = "bootstrap_distributions.parquet";
+                    await duckDb.registerFileBuffer(fileName, distributionsBuf);
+                    await conn.query(
+                        `INSERT INTO ${DISTRIBUTIONS_TABLE} SELECT * FROM read_parquet('${fileName}')`,
+                    );
+                })(),
+            );
+        }
+
+        await Promise.all(tasks);
+        console.log("[Parquet bootstrap] Loaded initial data from published Parquet artifacts.");
+    } catch (e) {
+        console.warn("[Parquet bootstrap] Failed to load initial data from Parquet.", e);
+    }
+}
+
 // Initialize DuckDB
 export async function getDuckDbContext(): Promise<DuckDbContext | null> {
     if (cached) return cached;
@@ -124,6 +202,7 @@ export async function getDuckDbContext(): Promise<DuckDbContext | null> {
             await conn.query("INSTALL spatial; LOAD spatial;");
 
             await ensureSchema(conn);
+            await loadInitialDataFromParquet(conn);
             void startBackgroundRestore(db);
             return { db, conn };
         } catch (err: any) {
