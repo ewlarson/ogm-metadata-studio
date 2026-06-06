@@ -9,6 +9,7 @@ import {
   normalizeAardvarkResource,
   normalizeAardvarkFormat,
   rasterThumbnailOutsizeArgs,
+  shouldPromoteRasterPackageToImageUpload,
 } from "./enrichment-proxy.mjs";
 
 describe("COG preview render options", () => {
@@ -63,6 +64,31 @@ describe("raster thumbnail sizing", () => {
 
   it("preserves aspect ratio for wide rasters", () => {
     expect(rasterThumbnailOutsizeArgs({ size: [156018, 106414] })).toEqual(["-outsize", "512", "0"]);
+  });
+});
+
+describe("unreferenced raster package promotion", () => {
+  it("promotes image-readable raster packages only when GDAL finds no georeference", () => {
+    const baseAnalysis = {
+      raster: { source: { name: "Reno_1893_rpt1948.tif" } },
+      manifest: {
+        dataset: { kind: "raster", bbox: null },
+        crs: { wkt: "", normalized: "" },
+      },
+    };
+
+    expect(shouldPromoteRasterPackageToImageUpload(baseAnalysis)).toBe(true);
+    expect(shouldPromoteRasterPackageToImageUpload({
+      ...baseAnalysis,
+      manifest: {
+        dataset: { kind: "raster", bbox: { west: -120, south: 39, east: -119, north: 40 } },
+        crs: { wkt: "GEOGCS[\"WGS 84\"]", normalized: "GDAL-detected coordinate reference system" },
+      },
+    })).toBe(false);
+    expect(shouldPromoteRasterPackageToImageUpload({
+      ...baseAnalysis,
+      raster: { source: { name: "atlas.sid" } },
+    })).toBe(false);
   });
 });
 

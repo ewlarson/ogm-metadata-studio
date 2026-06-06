@@ -1337,7 +1337,7 @@ export const EnrichmentWorkbench: React.FC = () => {
         setStatus(`Processing ${queued.length} uploaded item(s).`);
 
         try {
-            const needsHistoricalMapPrompt = queued.some((item) => item.kind === "image");
+            const needsHistoricalMapPrompt = queued.some((item) => item.kind === "image" || item.kind === "geospatial");
             const historicalMapPrompt = needsHistoricalMapPrompt
                 ? await withTimeout(
                     getHistoricalMapDefinition(),
@@ -1346,6 +1346,29 @@ export const EnrichmentWorkbench: React.FC = () => {
                 )
                 : null;
             const outputSchema = historicalMapPrompt ? JSON.parse(historicalMapPrompt.definition.output_schema_json) : {};
+            type HistoricalPromptPayload = {
+                visionProfileId?: string;
+                textExtractionModelProfileId?: string;
+                systemPrompt: string;
+                userPrompt: string;
+                outputSchema: Record<string, unknown>;
+            };
+            const promptPayloadFor = (assetId: string, fileName: string, required: boolean): Partial<HistoricalPromptPayload> => {
+                const promptVersion = historicalMapPrompt?.promptVersion;
+                if (!promptVersion) {
+                    if (required) throw new Error("Historical map prompt was not loaded.");
+                    return {};
+                }
+                return {
+                    visionProfileId: selectedVisionProfile?.id,
+                    textExtractionModelProfileId: selectedVisionProfile ? selectedTextExtractionModelProfile?.id : undefined,
+                    systemPrompt: String(promptVersion.system_prompt || ""),
+                    userPrompt: String(promptVersion.user_prompt_template || "")
+                        .replaceAll("{{asset_id}}", assetId)
+                        .replaceAll("{{file_name}}", fileName),
+                    outputSchema,
+                };
+            };
             const modelParams = normalizeModelParams(selectedModelProfile.defaultModel, selectedModelProfile.modelParams ?? {});
             const batchDefaults = defaultBatchDefaultsPayload(selectedStorageProfile);
             const textProvider = selectedTextExtractionModelProfile?.provider || "openai";
@@ -1394,6 +1417,7 @@ export const EnrichmentWorkbench: React.FC = () => {
                                 jobId,
                                 storageProfileId: selectedStorageProfile.id,
                                 modelProfileId: selectedModelProfile.id,
+                                ...promptPayloadFor(jobId, item.name, false),
                                 model: selectedModelProfile.defaultModel,
                                 modelParams,
                                 batchDefaults,
@@ -1414,6 +1438,7 @@ export const EnrichmentWorkbench: React.FC = () => {
                                 jobId,
                                 storageProfileId: selectedStorageProfile.id,
                                 modelProfileId: selectedModelProfile.id,
+                                ...promptPayloadFor(jobId, item.name, false),
                                 model: selectedModelProfile.defaultModel,
                                 modelParams,
                                 batchDefaults,
@@ -1471,6 +1496,7 @@ export const EnrichmentWorkbench: React.FC = () => {
                                     jobId,
                                     storageProfileId: selectedStorageProfile.id,
                                     modelProfileId: selectedModelProfile.id,
+                                    ...promptPayloadFor(checksum, packagePayload.fileName, false),
                                     file: {
                                         name: packagePayload.fileName,
                                         type: "application/zip",
@@ -1483,17 +1509,16 @@ export const EnrichmentWorkbench: React.FC = () => {
                                     forceReprocess: reprocessExistingUploads,
                                     model: selectedModelProfile.defaultModel,
                                     modelParams,
+                                    outputSchema,
                                     batchDefaults,
                                 }, controller.signal);
                             } else {
-                                const promptVersion = historicalMapPrompt?.promptVersion;
-                                if (!promptVersion) throw new Error("Historical map prompt was not loaded.");
+                                const imagePromptPayload = promptPayloadFor(checksum, item.file.name, true) as HistoricalPromptPayload;
                                 response = await enrichmentProxyClient.processUploadedImage({
                                     jobId,
                                     storageProfileId: selectedStorageProfile.id,
                                     modelProfileId: selectedModelProfile.id,
-                                    visionProfileId: selectedVisionProfile?.id,
-                                    textExtractionModelProfileId: selectedVisionProfile ? selectedTextExtractionModelProfile?.id : undefined,
+                                    ...imagePromptPayload,
                                     file: {
                                         name: item.file.name,
                                         type: item.file.type,
@@ -1504,13 +1529,8 @@ export const EnrichmentWorkbench: React.FC = () => {
                                     },
                                     checksum,
                                     forceReprocess: reprocessExistingUploads,
-                                    systemPrompt: String(promptVersion.system_prompt || ""),
-                                    userPrompt: String(promptVersion.user_prompt_template || "")
-                                        .replaceAll("{{asset_id}}", checksum)
-                                        .replaceAll("{{file_name}}", item.file.name),
                                     model: selectedModelProfile.defaultModel,
                                     modelParams,
-                                    outputSchema,
                                     batchDefaults,
                                     metadataDocuments,
                                 }, controller.signal);

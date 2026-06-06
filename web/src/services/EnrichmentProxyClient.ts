@@ -78,6 +78,8 @@ export interface ProcessUploadedImageRequest {
     modelProfileId: string;
     visionProfileId?: string;
     textExtractionModelProfileId?: string;
+    resourceId?: string;
+    preserveResourceId?: boolean;
     file: UploadedImageFilePayload;
     checksum: string;
     forceReprocess?: boolean;
@@ -136,21 +138,35 @@ export interface ProcessGeospatialPackageRequest {
     jobId: string;
     storageProfileId: string;
     modelProfileId: string;
+    visionProfileId?: string;
+    textExtractionModelProfileId?: string;
+    resourceId?: string;
     file: UploadedPackageFilePayload;
     checksum: string;
     forceReprocess?: boolean;
+    systemPrompt?: string;
+    userPrompt?: string;
     model: string;
     modelParams: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
     batchDefaults: Record<string, unknown>;
+    metadataDocuments?: CompanionMetadataPayload[];
 }
 
 export interface CreateGeospatialUploadSessionRequest {
     jobId: string;
     storageProfileId: string;
     modelProfileId: string;
+    visionProfileId?: string;
+    textExtractionModelProfileId?: string;
+    resourceId?: string;
+    systemPrompt?: string;
+    userPrompt?: string;
     model: string;
     modelParams: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
     batchDefaults: Record<string, unknown>;
+    metadataDocuments?: CompanionMetadataPayload[];
     forceReprocess?: boolean;
     fileName: string;
 }
@@ -162,9 +178,12 @@ export interface ProcessGeospatialPackageResponse {
     fileName: string;
     artifacts: {
         originalUrl: string;
+        originalPackageUrl?: string;
         manifestUrl: string;
         aardvarkUrl: string;
         aiEnrichmentsUrl?: string;
+        iiifInfoUrl?: string;
+        extractionUrl?: string;
         geojsonUrl?: string;
         geoParquetUrl?: string;
         pmtilesUrl?: string;

@@ -15,6 +15,57 @@ import { useToast } from './shared/ToastContext';
 import { withBasePath } from '../utils/basePath';
 import { recoverProcessedS3ResourceToLocalCatalog } from '../services/processedResourceRecovery';
 
+function referencesFromResource(resource: Resource): Record<string, unknown> {
+    if (!resource.dct_references_s) return {};
+    try {
+        const parsed = JSON.parse(resource.dct_references_s);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function referenceUrl(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (value && typeof value === "object") {
+        const record = value as Record<string, unknown>;
+        return String(record.url || record["@id"] || record.id || "");
+    }
+    return "";
+}
+
+function resourceReferencesProcessedS3Upload(resource: Resource, refs: Record<string, unknown>): boolean {
+    const uploadNeedle = `/uploads/${resource.id}/`;
+    return Object.values(refs).some((value) => {
+        const values = Array.isArray(value) ? value : [value];
+        return values.some((item) => referenceUrl(item).includes(uploadNeedle));
+    });
+}
+
+function shouldRefreshStaleProcessedRaster(resource: Resource): boolean {
+    if (!resource.id) return false;
+    const refs = referencesFromResource(resource);
+    const schemaUrl = referenceUrl(refs["http://schema.org/url"]);
+    const hasImageArtifacts = Boolean(
+        refs["http://iiif.io/api/image"] ||
+        refs["https://opengeometadata.org/reference/enrichment-response"]
+    );
+    const hasProcessedUpload = resourceReferencesProcessedS3Upload(resource, refs);
+    if (hasImageArtifacts) {
+        return hasProcessedUpload &&
+            (resource.gbl_resourceClass_sm || []).map(String).includes("Maps") &&
+            /\.zip(?:$|[?#])/i.test(schemaUrl);
+    }
+    if (!hasProcessedUpload) return false;
+
+    const classes = (resource.gbl_resourceClass_sm || []).map(String);
+    const types = (resource.gbl_resourceType_sm || []).map(String);
+    const notes = (resource.gbl_displayNote_sm || []).map(String).join(" ").toLowerCase();
+    return classes.includes("Datasets") &&
+        types.includes("Raster data") &&
+        String(resource.dct_format_s || "").toLowerCase() === "geotiff" &&
+        notes.includes("georeferencing");
+}
 
 interface ResourceShowProps {
     id: string;
@@ -45,6 +96,23 @@ export const ResourceShow: React.FC<ResourceShowProps> = ({ id, onBack }) => {
                 if (!r) {
                     await waitForDuckDbRestore();
                     r = await queryResourceById(id);
+                }
+                if (r && shouldRefreshStaleProcessedRaster(r)) {
+                    setRecoveryMessage("Checking for an updated processed copy in S3...");
+                    try {
+                        const recovered = await recoverProcessedS3ResourceToLocalCatalog(id, { signal: controller.signal });
+                        if (canceled) return;
+                        if (recovered) {
+                            r = recovered.resource;
+                            addToastRef.current(`Refreshed ${r.dct_title_s || r.id} from processed S3 artifacts.`, "success");
+                        }
+                    } catch (error) {
+                        if (!controller.signal.aborted) {
+                            console.info("Processed S3 refresh did not update this resource", error);
+                        }
+                    } finally {
+                        if (!canceled) setRecoveryMessage(null);
+                    }
                 }
                 if (!r) {
                     setRecoveryMessage("Looking for a saved processed copy in S3...");

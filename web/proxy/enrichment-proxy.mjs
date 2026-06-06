@@ -4495,11 +4495,20 @@ function downloadUrlMatching(refs, pattern) {
 
 function geospatialArtifactUrlsForResource(profile, keys, resource, fallback = {}) {
   const refs = referencesFromResource(resource);
+  const iiifReference = refs["http://iiif.io/api/image"] ? String(refs["http://iiif.io/api/image"]) : "";
+  const schemaUrl = firstReferenceUrl(refs["http://schema.org/url"]);
+  const originalPackageUrl = downloadUrlMatching(refs, /original|package|zip/i);
   return {
     ...fallback,
-    originalUrl: downloadUrlMatching(refs, /original|package|zip/i) || fallback.originalUrl || accessUrlFor(profile, keys.original),
+    originalUrl: iiifReference
+      ? schemaUrl || fallback.originalUrl || accessUrlFor(profile, keys.original)
+      : originalPackageUrl || schemaUrl || fallback.originalUrl || accessUrlFor(profile, keys.original),
+    originalPackageUrl: originalPackageUrl || fallback.originalPackageUrl,
     manifestUrl: firstReferenceUrl(refs["https://opengeometadata.org/reference/dataset-manifest"]) || fallback.manifestUrl || accessUrlFor(profile, keys.manifest),
     aardvarkUrl: firstReferenceUrl(refs["https://opengeometadata.org/reference/aardvark-json"]) || fallback.aardvarkUrl || accessUrlFor(profile, keys.aardvark),
+    iiifInfoUrl: iiifReference ? (iiifReference.endsWith("/info.json") ? iiifReference : `${iiifReference.replace(/\/+$/, "")}/info.json`) : fallback.iiifInfoUrl,
+    extractionUrl: refs["https://opengeometadata.org/reference/enrichment-response"] || fallback.extractionUrl,
+    aiEnrichmentsUrl: firstReferenceUrl(refs[AI_ENRICHMENTS_RELATION]) || refs[AI_ENRICHMENTS_RELATION] || fallback.aiEnrichmentsUrl,
     geojsonUrl: firstReferenceUrl(refs.geojson) || downloadUrlMatching(refs, /geojson/i) || fallback.geojsonUrl,
     geoParquetUrl: downloadUrlMatching(refs, /geoparquet|parquet/i) || fallback.geoParquetUrl,
     pmtilesUrl: firstReferenceUrl(refs.pmtiles) || downloadUrlMatching(refs, /pmtiles/i) || fallback.pmtilesUrl,
@@ -6438,6 +6447,23 @@ function hasRasterGeoreference(manifest, info) {
   return Boolean(manifest.dataset.bbox || info?.geoTransform || info?.gcps?.gcpList?.length || info?.coordinateSystem?.wkt);
 }
 
+function rasterPackageCanBeImageProcessed(analysis) {
+  const sourceName = String(analysis?.raster?.source?.name || "");
+  return analysis?.manifest?.dataset?.kind === "raster" && /\.(tiff?|jp2|j2k)$/i.test(sourceName);
+}
+
+function manifestHasRasterGeoreference(manifest) {
+  return Boolean(
+    manifest?.dataset?.bbox ||
+    String(manifest?.crs?.wkt || "").trim() ||
+    String(manifest?.crs?.normalized || "").trim()
+  );
+}
+
+function shouldPromoteRasterPackageToImageUpload(analysis) {
+  return rasterPackageCanBeImageProcessed(analysis) && !manifestHasRasterGeoreference(analysis?.manifest);
+}
+
 function rasterBandMetadataValue(band, domain, key) {
   return band?.metadata?.[domain]?.[key] ?? band?.metadata?.[""]?.[key] ?? "";
 }
@@ -6650,6 +6676,104 @@ async function createVectorGeospatialDerivatives({ profile, keys, entries, shape
 async function createGeospatialDerivatives(args) {
   if (args.manifest?.dataset?.kind === "raster") return createRasterGeospatialDerivatives(args);
   return createVectorGeospatialDerivatives(args);
+}
+
+function metadataDocumentsFromRasterPackage(analysis) {
+  return normalizeMetadataDocuments((analysis?.raster?.sidecars || [])
+    .filter((entry) => /\.(txt|xml|fgdc|iso|met)$/i.test(entry.name))
+    .map((entry) => ({
+      name: path.basename(entry.name),
+      type: contentTypeForMetadataKey(entry.name),
+      size: entryBytes(entry),
+      text: entry.buffer ? entry.buffer.toString("utf8") : "",
+    })));
+}
+
+async function rasterSourceBufferForImagePromotion(source) {
+  if (source?.buffer) return source.buffer;
+  if (source?.filePath) return readFile(source.filePath);
+  throw new Error(`Raster source ${source?.name || "(unknown)"} is not buffered for IIIF/OCR promotion.`);
+}
+
+function addRasterPackageReferencesToPromotedImageResource(resource, artifacts, packageFileName) {
+  const refs = referencesFromResource(resource);
+  const downloadRefs = referenceItems(refs["http://schema.org/downloadUrl"]);
+  const seen = new Set(downloadRefs.map((item) => item.url));
+  const addDownload = (entry) => {
+    if (!entry?.url || seen.has(entry.url)) return;
+    seen.add(entry.url);
+    downloadRefs.push(entry);
+  };
+  addDownload({ url: artifacts.originalUrl, label: "Original geospatial raster package" });
+  if (artifacts.manifestUrl) addDownload({ url: artifacts.manifestUrl, label: "Dataset manifest" });
+  const displayNotes = Array.isArray(resource.gbl_displayNote_sm) ? resource.gbl_displayNote_sm.map(String) : [];
+  return {
+    ...resource,
+    dct_source_sm: uniqueStrings([...(Array.isArray(resource.dct_source_sm) ? resource.dct_source_sm : []), artifacts.originalUrl]),
+    gbl_displayNote_sm: uniqueStrings([
+      ...displayNotes,
+      `${packageFileName} did not expose usable raster georeferencing, so OpenGeoMetadata Studio processed its image source as a scanned map for IIIF and OCR.`,
+    ]),
+    dct_references_s: safeJsonStringify({
+      ...refs,
+      "http://schema.org/downloadUrl": downloadRefs,
+      ...(artifacts.manifestUrl ? {
+        "https://opengeometadata.org/reference/dataset-manifest": { url: artifacts.manifestUrl, label: "Dataset manifest" },
+      } : {}),
+    }),
+  };
+}
+
+async function processUnreferencedRasterPackageAsImage({ config, storageProfile, body, resourceId, analysis, packageFileName, packageChecksum, packageArtifacts, keys, log }) {
+  const source = analysis.raster?.source;
+  if (!source) throw new Error("Raster package promotion requires a raster source file.");
+  const sourceBuffer = await rasterSourceBufferForImagePromotion(source);
+  const imageFileName = sanitizeFileName(path.basename(source.name) || analysis.manifest.dataset.baseName || "raster.tif");
+  const imageChecksum = entryChecksum(source) || sha256(sourceBuffer);
+  const metadataDocuments = normalizeMetadataDocuments([
+    ...(Array.isArray(body.metadataDocuments) ? body.metadataDocuments : []),
+    ...metadataDocumentsFromRasterPackage(analysis),
+  ]);
+
+  log("Unreferenced raster package promoted to scanned-map image processing", {
+    packageFileName,
+    imageFileName,
+    imageChecksum,
+    bytes: sourceBuffer.length,
+  });
+
+  const response = await processUploadedImage(config, {
+    ...body,
+    resourceId,
+    preserveResourceId: true,
+    forceReprocess: true,
+    file: {
+      name: imageFileName,
+      type: contentTypeForKey(imageFileName),
+      size: sourceBuffer.length,
+      checksum: imageChecksum,
+      base64: sourceBuffer.toString("base64"),
+      modifiedAt: source.modifiedAt || "",
+    },
+    checksum: imageChecksum,
+    metadataDocuments,
+  });
+
+  const resource = addRasterPackageReferencesToPromotedImageResource(response.aardvarkJson, packageArtifacts, packageFileName);
+  await putObjectBuffer(storageProfile, keys.aardvark, Buffer.from(safeJsonStringify(resource, 2), "utf8"), "application/json");
+  const distributions = distributionsFromResource(resource);
+  return {
+    ...response,
+    packageChecksum,
+    artifacts: {
+      ...response.artifacts,
+      originalPackageUrl: packageArtifacts.originalUrl,
+      manifestUrl: packageArtifacts.manifestUrl,
+    },
+    manifest: analysis.manifest,
+    aardvarkJson: resource,
+    distributions,
+  };
 }
 
 function buildAardvarkForGeospatialPackage({ resourceId, checksum, fileName, fileSize, manifest, batchDefaults = {}, artifacts }) {
@@ -7528,7 +7652,7 @@ async function callGeospatialAardvarkMetadataWriter(modelProfile, request, conte
   return { ...parsed, rawResponse, requestBody, systemPrompt, userPrompt, model, usage: rawResponse.usage };
 }
 
-async function completeGeospatialProcessing({ storageProfile, modelProfile, body, fileName, checksum, fileSize, analysis, uploadOriginal, log, milestones }) {
+async function completeGeospatialProcessing({ config, storageProfile, modelProfile, body, fileName, checksum, fileSize, analysis, uploadOriginal, log, milestones }) {
   const batchDefaults = effectiveBatchDefaults(body.batchDefaults || {}, storageProfile);
   const resourceId = body.resourceId || generatedAardvarkResourceId(storageProfile, batchDefaults);
   const keys = geospatialUploadKeys(storageProfile, resourceId, fileName);
@@ -7540,34 +7664,44 @@ async function completeGeospatialProcessing({ storageProfile, modelProfile, body
     aardvarkUrl: accessUrlFor(storageProfile, keys.aardvark),
   };
 
-  if (body.forceReprocess !== true
+  const hasCachedGeospatialResource = body.forceReprocess !== true
     && await objectExists(storageProfile, keys.archivalSupplement)
-    && await objectExists(storageProfile, keys.aardvark)) {
-    log("Geospatial package already has archival accession supplement; returning existing resource", { resourceId });
-    const resource = ensureArchivalSupplementReferences(await fetchJsonObject(storageProfile, keys.aardvark), artifacts);
-    const existingArtifacts = geospatialArtifactUrlsForResource(storageProfile, keys, resource, artifacts);
-    await putObjectBuffer(storageProfile, keys.aardvark, Buffer.from(safeJsonStringify(resource, 2), "utf8"), "application/json");
-    const manifest = await objectExists(storageProfile, keys.manifest)
-      ? await fetchJsonObject(storageProfile, keys.manifest)
-      : {};
-    const archivalSupplement = await objectExists(storageProfile, keys.archivalSupplementJson)
-      ? await fetchJsonObject(storageProfile, keys.archivalSupplementJson)
-      : null;
-    return {
-      cached: true,
-      checksum,
-      resourceId,
-      fileName,
-      artifacts: existingArtifacts,
-      manifest,
-      rawResponse: null,
-      usage: null,
-      aardvarkJson: resource,
-      distributions: distributionsFromResource(resource),
-      aardvarkEvidence: [],
-      archivalSupplement,
-      proxyMilestones: milestones,
-    };
+    && await objectExists(storageProfile, keys.aardvark);
+  if (hasCachedGeospatialResource) {
+    const cachedResource = await fetchJsonObject(storageProfile, keys.aardvark);
+    const refs = referencesFromResource(cachedResource);
+    const cacheNeedsImagePromotion = rasterPackageCanBeImageProcessed(analysis)
+      && !refs["http://iiif.io/api/image"]
+      && !refs["https://opengeometadata.org/reference/enrichment-response"];
+    if (cacheNeedsImagePromotion) {
+      log("Cached raster package lacks IIIF/OCR references; reprocessing to test scanned-map promotion", { resourceId });
+    } else {
+      log("Geospatial package already has archival accession supplement; returning existing resource", { resourceId });
+      const resource = ensureArchivalSupplementReferences(cachedResource, artifacts);
+      const existingArtifacts = geospatialArtifactUrlsForResource(storageProfile, keys, resource, artifacts);
+      await putObjectBuffer(storageProfile, keys.aardvark, Buffer.from(safeJsonStringify(resource, 2), "utf8"), "application/json");
+      const manifest = await objectExists(storageProfile, keys.manifest)
+        ? await fetchJsonObject(storageProfile, keys.manifest)
+        : {};
+      const archivalSupplement = await objectExists(storageProfile, keys.archivalSupplementJson)
+        ? await fetchJsonObject(storageProfile, keys.archivalSupplementJson)
+        : null;
+      return {
+        cached: true,
+        checksum,
+        resourceId,
+        fileName,
+        artifacts: existingArtifacts,
+        manifest,
+        rawResponse: null,
+        usage: null,
+        aardvarkJson: resource,
+        distributions: distributionsFromResource(resource),
+        aardvarkEvidence: [],
+        archivalSupplement,
+        proxyMilestones: milestones,
+      };
+    }
   }
 
   log("Geospatial package manifest created", {
@@ -7596,6 +7730,21 @@ async function completeGeospatialProcessing({ storageProfile, modelProfile, body
 
   log("Uploading geospatial package manifest", { key: keys.manifest });
   await putObjectBuffer(storageProfile, keys.manifest, Buffer.from(safeJsonStringify(analysis.manifest, 2), "utf8"), "application/json");
+
+  if (shouldPromoteRasterPackageToImageUpload(analysis)) {
+    return processUnreferencedRasterPackageAsImage({
+      config,
+      storageProfile,
+      body,
+      resourceId,
+      analysis,
+      packageFileName: fileName,
+      packageChecksum: checksum,
+      packageArtifacts: finalArtifacts,
+      keys,
+      log,
+    });
+  }
 
   const fallbackSupplement = buildArchivalSupplementFallback({
     resourceId,
@@ -7708,6 +7857,7 @@ async function processGeospatialPackage(config, body) {
   log("Geospatial package analysis started", { bytes: buffer.length });
   const analysis = await analyzeGeospatialPackage(buffer, fileName);
   return completeGeospatialProcessing({
+    config,
     storageProfile,
     modelProfile,
     body,
@@ -7849,6 +7999,7 @@ async function completeGeospatialUploadSession(config, body) {
       throw new Error("Geospatial package must contain a shapefile or geospatial raster source. Submit shapefile sidecars or a raster with georeferencing sidecars.");
     }
     return await completeGeospatialProcessing({
+      config,
       storageProfile,
       modelProfile,
       body: request,
@@ -8003,9 +8154,10 @@ async function processUploadedImage(config, body) {
   const metadataDocuments = normalizeMetadataDocuments(body.metadataDocuments);
   const indexKey = checksumIndexKey(storageProfile, checksum);
   const forceReprocess = body.forceReprocess === true;
+  const preserveResourceId = Boolean(body.resourceId && body.preserveResourceId);
   log("Checking checksum index", { indexKey });
   let indexedUpload = null;
-  if (await objectExists(storageProfile, indexKey)) {
+  if (!preserveResourceId && await objectExists(storageProfile, indexKey)) {
     const index = await fetchJsonObject(storageProfile, indexKey);
     const resourceId = String(index.resourceId || index.resource_id || `uploaded-${checksum.slice(0, 16)}`);
     const keys = hydrateUploadKeys(storageProfile, index.keys, resourceId, fileName);
@@ -8073,8 +8225,8 @@ async function processUploadedImage(config, body) {
     }
   }
 
-  const resourceId = indexedUpload?.resourceId || body.resourceId || generatedAardvarkResourceId(storageProfile, batchDefaults);
-  const keys = hydrateUploadKeys(storageProfile, indexedUpload?.keys, resourceId, fileName);
+  const resourceId = preserveResourceId ? String(body.resourceId) : indexedUpload?.resourceId || body.resourceId || generatedAardvarkResourceId(storageProfile, batchDefaults);
+  const keys = hydrateUploadKeys(storageProfile, preserveResourceId ? null : indexedUpload?.keys, resourceId, fileName);
   log("Resource directory assigned", { resourceId, root: keys.root, forceReprocess });
   const artifacts = {
     originalUrl: accessUrlFor(storageProfile, keys.original),
@@ -9503,4 +9655,5 @@ export {
   normalizeAardvarkResource,
   rasterThumbnailOutsizeArgs,
   selectTextReconciliationTiles,
+  shouldPromoteRasterPackageToImageUpload,
 };

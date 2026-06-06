@@ -106,6 +106,87 @@ describe('ResourceShow Component', () => {
         }));
     });
 
+    it('refreshes an existing stale processed raster from S3', async () => {
+        const staleRaster = {
+            id: '1',
+            dct_title_s: 'Reno, Nevada, 1893 (reprinted 1948)',
+            dct_format_s: 'GeoTIFF',
+            gbl_resourceClass_sm: ['Datasets'],
+            gbl_resourceType_sm: ['Raster data'],
+            gbl_displayNote_sm: ['GDAL did not find raster georeferencing; no bounding box, centroid, or CRS is available.'],
+            dct_references_s: JSON.stringify({
+                'http://schema.org/downloadUrl': [
+                    { url: 'https://s3.amazonaws.com/ogm-metadata-studio/uploads/1/original_file/Reno_1893_rpt1948.zip', label: 'Original geospatial raster package' },
+                ],
+                'https://opengeometadata.org/reference/aardvark-json': 'https://s3.amazonaws.com/ogm-metadata-studio/uploads/1/aardvark.json',
+            }),
+        };
+        const refreshed = {
+            ...mockResource,
+            dct_title_s: 'Reno sheet, Nevada',
+            gbl_resourceClass_sm: ['Maps'],
+            gbl_resourceType_sm: ['Topographic maps'],
+            dct_references_s: JSON.stringify({
+                'http://iiif.io/api/image': 'https://s3.amazonaws.com/ogm-metadata-studio/uploads/1/iiif/info.json',
+                'https://opengeometadata.org/reference/enrichment-response': 'https://s3.amazonaws.com/ogm-metadata-studio/uploads/1/enrichment_response.json',
+            }),
+        };
+        vi.mocked(duckdbClient.queryResourceById).mockResolvedValue(staleRaster as any);
+        vi.mocked(processedResourceRecovery.recoverProcessedS3ResourceToLocalCatalog).mockResolvedValue({
+            resource: refreshed as any,
+            distributions: [],
+            storageProfileId: 's3-profile',
+            storageProfileName: 'S3 profile',
+            s3Resource: { resourceId: '1' } as any,
+        });
+
+        render(<ResourceShow id="1" onBack={() => { }} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Resource Viewer')).toBeDefined();
+        });
+        expect(processedResourceRecovery.recoverProcessedS3ResourceToLocalCatalog).toHaveBeenCalledWith('1', expect.objectContaining({
+            signal: expect.any(AbortSignal),
+        }));
+    });
+
+    it('repairs a promoted processed map whose local primary URL still points at the ZIP', async () => {
+        const localPromotedWithZipUrl = {
+            id: '1',
+            dct_title_s: 'Reno sheet, Nevada',
+            dct_format_s: 'TIFF',
+            gbl_resourceClass_sm: ['Maps'],
+            gbl_resourceType_sm: ['Topographic maps'],
+            dct_references_s: JSON.stringify({
+                'http://schema.org/url': 'https://s3.amazonaws.com/ogm-metadata-studio/uploads/1/original_file/Reno_1893_rpt1948.zip',
+                'http://iiif.io/api/image': 'https://s3.amazonaws.com/ogm-metadata-studio/uploads/1/iiif/info.json',
+            }),
+        };
+        vi.mocked(duckdbClient.queryResourceById).mockResolvedValue(localPromotedWithZipUrl as any);
+        vi.mocked(processedResourceRecovery.recoverProcessedS3ResourceToLocalCatalog).mockResolvedValue({
+            resource: {
+                ...localPromotedWithZipUrl,
+                dct_references_s: JSON.stringify({
+                    'http://schema.org/url': 'https://s3.amazonaws.com/ogm-metadata-studio/uploads/1/original_file/Reno_1893_rpt1948.tif',
+                    'http://iiif.io/api/image': 'https://s3.amazonaws.com/ogm-metadata-studio/uploads/1/iiif/info.json',
+                }),
+            } as any,
+            distributions: [],
+            storageProfileId: 's3-profile',
+            storageProfileName: 'S3 profile',
+            s3Resource: { resourceId: '1' } as any,
+        });
+
+        render(<ResourceShow id="1" onBack={() => { }} />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Resource Viewer')).toBeDefined();
+        });
+        expect(processedResourceRecovery.recoverProcessedS3ResourceToLocalCatalog).toHaveBeenCalledWith('1', expect.objectContaining({
+            signal: expect.any(AbortSignal),
+        }));
+    });
+
     it('handles delete action', async () => {
         vi.mocked(duckdbClient.queryResourceById).mockResolvedValue(mockResource as any);
         const onBack = vi.fn();
